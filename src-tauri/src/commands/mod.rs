@@ -6,6 +6,7 @@ pub mod background;
 pub mod file_server;
 pub mod frpc;
 pub mod download;
+pub mod update;
 
 pub use http::*;
 pub use tcping::*;
@@ -15,3 +16,4 @@ pub use background::*;
 pub use file_server::*;
 pub use frpc::*;
 pub use download::*;
+pub use update::*;

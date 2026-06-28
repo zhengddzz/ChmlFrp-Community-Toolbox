@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  release:
     name: Tauri Build (${{ matrix.platform }})
     runs-on: ${{ matrix.platform }}
 
@@ -86,7 +86,7 @@ jobs:
 
             | 平台 | 安装包 | 说明 |
             |------|--------|------|
-            | Windows | `.exe` | 双击安装即可 |
+            | Windows | `.msi` 或 `.exe` | 双击安装即可 |
             | macOS | `.dmg` | 拖拽到应用程序文件夹（仅支持 Apple Silicon） |
             | Linux | `.deb` 或 `.AppImage` | 根据发行版安装 |
 
@@ -102,132 +102,3 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
-
-      - name: Upload Windows signature as artifact
-        if: matrix.platform == 'windows-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-sig
-          path: src-tauri/target/release/bundle/nsis/*.exe.sig
-          retention-days: 1
-
-      - name: Upload macOS signature as artifact
-        if: matrix.platform == 'macos-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: macos-sig
-          path: |
-            src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.tar.gz.sig
-            src-tauri/target/release/bundle/macos/*.tar.gz.sig
-          retention-days: 1
-
-      - name: Upload Linux signature as artifact
-        if: matrix.platform == 'ubuntu-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-sig
-          path: src-tauri/target/release/bundle/appimage/*.AppImage.sig
-          retention-days: 1
-
-  generate-manifest:
-    name: Generate Updater Manifest
-    needs: build
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Download Windows signature
-        uses: actions/download-artifact@v4
-        with:
-          name: windows-sig
-          path: signatures/windows
-
-      - name: Download macOS signature
-        uses: actions/download-artifact@v4
-        with:
-          name: macos-sig
-          path: signatures/macos
-
-      - name: Download Linux signature
-        uses: actions/download-artifact@v4
-        with:
-          name: linux-sig
-          path: signatures/linux
-
-      - name: Generate latest.json
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          REPO="zhengddzz/ChmlFrp-NodeSpeedTest"
-          BASE_URL="https://github.com/${REPO}/releases/download/${GITHUB_REF_NAME}"
-
-          # Windows NSIS signature
-          WIN_SIG=""
-          WIN_SIG_FILE=$(find signatures/windows -name "*.exe.sig" 2>/dev/null | head -1)
-          WIN_EXE_NAME=""
-          if [ -n "$WIN_SIG_FILE" ]; then
-            WIN_SIG=$(cat "$WIN_SIG_FILE")
-            WIN_EXE_NAME=$(basename "${WIN_SIG_FILE%.sig}")
-          fi
-
-          # macOS signature
-          MAC_SIG=""
-          MAC_TAR_NAME=""
-          MAC_SIG_FILE=$(find signatures/macos -name "*.tar.gz.sig" 2>/dev/null | head -1)
-          if [ -n "$MAC_SIG_FILE" ]; then
-            MAC_SIG=$(cat "$MAC_SIG_FILE")
-            MAC_TAR_NAME=$(basename "${MAC_SIG_FILE%.sig}")
-          fi
-
-          # Linux AppImage signature
-          LINUX_SIG=""
-          LINUX_IMG_NAME=""
-          LINUX_SIG_FILE=$(find signatures/linux -name "*.AppImage.sig" 2>/dev/null | head -1)
-          if [ -n "$LINUX_SIG_FILE" ]; then
-            LINUX_SIG=$(cat "$LINUX_SIG_FILE")
-            LINUX_IMG_NAME=$(basename "${LINUX_SIG_FILE%.sig}")
-          fi
-
-          echo "Windows exe: ${WIN_EXE_NAME}, sig: ${WIN_SIG:0:20}..."
-          echo "macOS tar: ${MAC_TAR_NAME}, sig: ${MAC_SIG:0:20}..."
-          echo "Linux img: ${LINUX_IMG_NAME}, sig: ${LINUX_SIG:0:20}..."
-
-          # Build platforms JSON
-          PLATFORMS=""
-          PLATFORMS_ARRAY=""
-
-          if [ -n "$WIN_SIG" ] && [ -n "$WIN_EXE_NAME" ]; then
-            PLATFORMS_ARRAY="${PLATFORMS_ARRAY}\"windows-x86_64\": {\"signature\": \"${WIN_SIG}\", \"url\": \"${BASE_URL}/${WIN_EXE_NAME}\"}"
-          fi
-
-          if [ -n "$MAC_SIG" ] && [ -n "$MAC_TAR_NAME" ]; then
-            if [ -n "$PLATFORMS_ARRAY" ]; then
-              PLATFORMS_ARRAY="${PLATFORMS_ARRAY},"
-            fi
-            PLATFORMS_ARRAY="${PLATFORMS_ARRAY}\"darwin-aarch64\": {\"signature\": \"${MAC_SIG}\", \"url\": \"${BASE_URL}/${MAC_TAR_NAME}\"}"
-          fi
-
-          if [ -n "$LINUX_SIG" ] && [ -n "$LINUX_IMG_NAME" ]; then
-            if [ -n "$PLATFORMS_ARRAY" ]; then
-              PLATFORMS_ARRAY="${PLATFORMS_ARRAY},"
-            fi
-            PLATFORMS_ARRAY="${PLATFORMS_ARRAY}\"linux-x86_64\": {\"signature\": \"${LINUX_SIG}\", \"url\": \"${BASE_URL}/${LINUX_IMG_NAME}\"}"
-          fi
-
-          cat > latest.json << EOF
-          {
-            "version": "${VERSION}",
-            "date": "${DATE}",
-            "platforms": {
-              ${PLATFORMS_ARRAY}
-            }
-          }
-          EOF
-
-          echo "Generated latest.json:"
-          cat latest.json
-
-          gh release upload "${GITHUB_REF_NAME}" latest.json --clobber
-          echo "Uploaded latest.json to release ${GITHUB_REF_NAME}"

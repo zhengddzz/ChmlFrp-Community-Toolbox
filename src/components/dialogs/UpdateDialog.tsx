@@ -14,18 +14,25 @@ import { Badge } from "@/components/ui/badge";
 interface UpdateDialogProps {
   isOpen: boolean;
   onClose: () => void;
+  /** 点击"立即更新"开始下载 */
   onUpdate: () => void;
+  /** 下载完成后点击"立即重启更新"运行安装包 */
+  onInstall: () => void;
   version: string;
   date?: string;
   body?: string;
   isDownloading?: boolean;
+  /** 安装包是否已下载完成，等待用户确认重启 */
+  downloaded?: boolean;
   downloadProgress?: number;
 }
 
 function renderMarkdown(text: string): string {
   if (!text) return "";
 
-  const lines = text.split("\n");
+  // 规范化换行符：将 \r\n 和 \r 统一为 \n，避免行尾残留 \r 导致匹配失败
+  const normalizedText = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const lines = normalizedText.split("\n");
   const result: string[] = [];
   let inList = false;
 
@@ -38,6 +45,16 @@ function renderMarkdown(text: string): string {
         result.push("</ul>");
         inList = false;
       }
+      continue;
+    }
+
+    // 水平分隔线
+    if (trimmedLine === "---" || trimmedLine === "***" || trimmedLine === "___") {
+      if (inList) {
+        result.push("</ul>");
+        inList = false;
+      }
+      result.push("<hr class='my-3 border-border/60' />");
       continue;
     }
 
@@ -84,10 +101,15 @@ function renderMarkdown(text: string): string {
         inList = true;
       }
       const content = trimmedLine.substring(2);
-      const processedContent = content.replace(
-        /\*\*(.*?)\*\*/g,
-        "<strong class='font-semibold text-foreground'>$1</strong>",
-      );
+      const processedContent = content
+        .replace(
+          /\*\*(.*?)\*\*/g,
+          "<strong class='font-semibold text-foreground'>$1</strong>",
+        )
+        .replace(
+          /\[([^\]]+)\]\(([^)]+)\)/g,
+          "<a href='$2' target='_blank' rel='noopener noreferrer' class='text-primary underline hover:opacity-80'>$1</a>",
+        );
       result.push(
         `<li class='text-sm text-muted-foreground leading-relaxed flex items-start gap-2'><span class='text-primary mt-0.5'>•</span><span class='flex-1'>${processedContent}</span></li>`,
       );
@@ -96,10 +118,15 @@ function renderMarkdown(text: string): string {
         result.push("</ul>");
         inList = false;
       }
-      const processedLine = trimmedLine.replace(
-        /\*\*(.*?)\*\*/g,
-        "<strong class='font-semibold text-foreground'>$1</strong>",
-      );
+      const processedLine = trimmedLine
+        .replace(
+          /\*\*(.*?)\*\*/g,
+          "<strong class='font-semibold text-foreground'>$1</strong>",
+        )
+        .replace(
+          /\[([^\]]+)\]\(([^)]+)\)/g,
+          "<a href='$2' target='_blank' rel='noopener noreferrer' class='text-primary underline hover:opacity-80'>$1</a>",
+        );
       result.push(
         `<p class='text-sm text-muted-foreground mb-1 leading-relaxed'>${processedLine}</p>`,
       );
@@ -117,14 +144,23 @@ export function UpdateDialog({
   isOpen,
   onClose,
   onUpdate,
+  onInstall,
   version,
   date,
   body,
   isDownloading = false,
+  downloaded = false,
   downloadProgress = 0,
 }: UpdateDialogProps) {
   const markdownContent = body ? renderMarkdown(body) : "";
 
+  // 下载中 / 下载完成：不再使用对话框，改由设置页 UpdateSection 和侧边栏按钮显示
+  // 此处对话框仅在"发现新版本"初始提示时显示
+  if (isDownloading || downloaded) {
+    return null;
+  }
+
+  // 初始提示：发现新版本
   return (
     <Dialog
       open={isOpen}
@@ -178,30 +214,6 @@ export function UpdateDialog({
                   dangerouslySetInnerHTML={{ __html: markdownContent }}
                 />
               </ScrollArea>
-            </div>
-          )}
-
-          {isDownloading && (
-            <div className="px-6 py-4 border-t border-border/50 bg-muted/30 flex-shrink-0">
-              <div className="space-y-3">
-                <div className="flex items-center justify-between text-sm">
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-                    <span className="text-foreground font-medium">
-                      正在下载更新...
-                    </span>
-                  </div>
-                  <span className="text-muted-foreground font-mono">
-                    {downloadProgress.toFixed(0)}%
-                  </span>
-                </div>
-                <div className="w-full bg-muted/50 rounded-full h-2.5 overflow-hidden">
-                  <div
-                    className="bg-gradient-to-r from-primary to-primary/80 h-full rounded-full shadow-sm"
-                    style={{ width: `${downloadProgress}%` }}
-                  />
-                </div>
-              </div>
             </div>
           )}
 

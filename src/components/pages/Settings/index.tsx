@@ -12,6 +12,7 @@ import {
 } from "./utils";
 import { AppearanceSection } from "./components/AppearanceSection";
 import { UpdateSection } from "./components/UpdateSection";
+import { UpdateDialog } from "@/components/dialogs/UpdateDialog";
 import { updateService, type UpdateInfo } from "@/services/updateService";
 import { toast } from "sonner";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -64,6 +65,10 @@ export function Settings() {
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
+  // 安装包是否已下载完成，等待用户确认重启
+  const [downloaded, setDownloaded] = useState(false);
+  // 下载完成的安装包路径，供用户确认后调用安装
+  const [installerPath, setInstallerPath] = useState<string | null>(null);
   const [autoCheckEnabled, setAutoCheckEnabled] = useState(() =>
     updateService.getAutoCheckEnabled(),
   );
@@ -120,12 +125,13 @@ export function Settings() {
     try {
       const result = await updateService.checkUpdate();
       if (result.available) {
+        // 发现新版本：设置 updateInfo 触发 UpdateDialog 弹出，不显示 toast
         setUpdateInfo({
           version: result.version || "",
           date: result.date,
           body: result.body,
+          mandatory: result.mandatory,
         });
-        toast.success(`发现新版本 v${result.version}`);
       } else {
         setUpdateInfo(null);
         toast.success("当前已是最新版本");
@@ -148,12 +154,18 @@ export function Settings() {
   const handleUpdate = useCallback(async () => {
     setIsDownloading(true);
     setDownloadProgress(0);
+    setDownloaded(false);
+    setInstallerPath(null);
     try {
-      await updateService.installUpdate((progress) => {
+      // 仅下载安装包，不自动重启
+      const filePath = await updateService.downloadUpdate((progress) => {
         setDownloadProgress(progress);
       });
+      setInstallerPath(filePath);
+      setDownloaded(true);
+      toast.success("更新已下载完成，可随时重启安装");
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : "更新失败";
+      const errorMsg = error instanceof Error ? error.message : "下载更新失败";
       toast.error(errorMsg, {
         action: {
           label: "手动下载",
@@ -162,13 +174,42 @@ export function Settings() {
           },
         },
       });
+    } finally {
       setIsDownloading(false);
     }
   }, []);
 
+  // 用户确认后运行安装包并退出当前应用
+  const handleInstall = useCallback(async () => {
+    if (!installerPath) {
+      toast.error("安装包路径丢失，请重新下载");
+      setDownloaded(false);
+      return;
+    }
+    try {
+      await updateService.installUpdate(installerPath);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : "启动安装失败";
+      toast.error(errorMsg, {
+        action: {
+          label: "手动下载",
+          onClick: () => {
+            void openUrl(updateService.getReleaseUrl());
+          },
+        },
+      });
+    }
+  }, [installerPath]);
+
   const handleAutoCheckChange = useCallback((enabled: boolean) => {
     setAutoCheckEnabled(enabled);
     updateService.setAutoCheckEnabled(enabled);
+  }, []);
+
+  // 关闭更新对话框：重置下载状态，保留已下载的安装包路径以便后续手动安装
+  const handleCloseUpdateDialog = useCallback(() => {
+    setUpdateInfo(null);
+    setDownloaded(false);
   }, []);
 
   return (
@@ -214,12 +255,28 @@ export function Settings() {
           onCheckUpdate={handleCheckUpdate}
           updateInfo={updateInfo}
           onUpdate={handleUpdate}
+          onInstall={handleInstall}
           isDownloading={isDownloading}
+          downloaded={downloaded}
           downloadProgress={downloadProgress}
           autoCheckEnabled={autoCheckEnabled}
           onAutoCheckChange={handleAutoCheckChange}
         />
     </div>
+
+      {/* 更新对话框：手动检查发现新版本时弹出 */}
+      <UpdateDialog
+        isOpen={updateInfo !== null}
+        onClose={handleCloseUpdateDialog}
+        onUpdate={handleUpdate}
+        onInstall={handleInstall}
+        version={updateInfo?.version || ""}
+        date={updateInfo?.date}
+        body={updateInfo?.body}
+        isDownloading={isDownloading}
+        downloaded={downloaded}
+        downloadProgress={downloadProgress}
+      />
     </div>
   );
 }

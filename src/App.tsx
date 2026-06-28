@@ -34,6 +34,10 @@ function App() {
   const { updateInfo, setUpdateInfo } = useUpdateCheck();
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
+  // 安装包是否已下载完成，等待用户确认重启
+  const [downloaded, setDownloaded] = useState(false);
+  // 下载完成的安装包路径，供用户确认后调用安装
+  const [installerPath, setInstallerPath] = useState<string | null>(null);
 
   const shouldShowTitleBar = isMacOS
     ? showTitleBar
@@ -111,21 +115,58 @@ function App() {
   }, [videoRef, videoVolume]);
 
   const handleUpdate = useCallback(async () => {
+    // 关闭更新提示对话框，下载进度改由设置页 UpdateSection 显示
+    setUpdateInfo(null);
     setIsDownloading(true);
     setDownloadProgress(0);
+    setDownloaded(false);
+    setInstallerPath(null);
     try {
-      await updateService.installUpdate((progress) => {
+      // 仅下载安装包，不自动重启
+      const filePath = await updateService.downloadUpdate((progress) => {
         setDownloadProgress(progress);
       });
+      setInstallerPath(filePath);
+      setDownloaded(true);
+      toast.success("更新已下载完成，可随时重启安装");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "更新失败");
+      toast.error(error instanceof Error ? error.message : "下载更新失败");
+    } finally {
       setIsDownloading(false);
     }
-  }, []);
+  }, [setUpdateInfo]);
+
+  // 用户确认后运行安装包并退出当前应用
+  const handleInstall = useCallback(async () => {
+    if (!installerPath) {
+      toast.error("安装包路径丢失，请重新下载");
+      setDownloaded(false);
+      return;
+    }
+    try {
+      await updateService.installUpdate(installerPath);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "启动安装失败");
+    }
+  }, [installerPath]);
 
   const handleCloseUpdateDialog = useCallback(() => {
     setUpdateInfo(null);
+    // 关闭弹窗时重置下载状态（保留已下载的安装包路径以便后续手动安装）
+    setDownloaded(false);
   }, [setUpdateInfo]);
+
+  // 应用启动时检查是否有未完成的待安装更新（上次下载完成但未安装）
+  useEffect(() => {
+    const restorePendingInstaller = async () => {
+      const pendingPath = await updateService.getPendingInstaller();
+      if (pendingPath) {
+        setInstallerPath(pendingPath);
+        setDownloaded(true);
+      }
+    };
+    restorePendingInstaller();
+  }, []);
 
   return (
     <>
@@ -133,10 +174,12 @@ function App() {
         isOpen={updateInfo !== null}
         onClose={handleCloseUpdateDialog}
         onUpdate={handleUpdate}
+        onInstall={handleInstall}
         version={updateInfo?.version || ""}
         date={updateInfo?.date}
         body={updateInfo?.body}
         isDownloading={isDownloading}
+        downloaded={downloaded}
         downloadProgress={downloadProgress}
       />
       <div
@@ -209,6 +252,8 @@ function App() {
                 collapsedWidth={SIDEBAR_COLLAPSED_WIDTH}
                 mode={sidebarMode}
                 disabled={isTesting}
+                hasPendingUpdate={downloaded}
+                onInstallUpdate={handleInstall}
               />
             </div>
 
@@ -243,6 +288,8 @@ function App() {
               onUserChange={setUser}
               mode="classic"
               disabled={isTesting}
+              hasPendingUpdate={downloaded}
+              onInstallUpdate={handleInstall}
             />
             <div className="flex-1 flex flex-col overflow-hidden relative">
               {isMacOS && !showTitleBar ? (

@@ -7,6 +7,7 @@ import {
   LogOut,
   User,
   Network,
+  RotateCcw,
 } from "lucide-react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import {
@@ -32,6 +33,10 @@ interface SidebarProps {
   collapsedWidth?: number;
   mode?: SidebarMode;
   disabled?: boolean;
+  /** 是否有已下载完成的待安装更新 */
+  hasPendingUpdate?: boolean;
+  /** 点击侧边栏"立即更新"按钮时触发安装 */
+  onInstallUpdate?: () => void;
 }
 
 export function Sidebar({
@@ -44,6 +49,8 @@ export function Sidebar({
   collapsedWidth,
   mode = "classic",
   disabled = false,
+  hasPendingUpdate = false,
+  onInstallUpdate,
 }: SidebarProps) {
   const [showTitleBar, setShowTitleBar] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
@@ -523,7 +530,7 @@ export function Sidebar({
             </div>
             <div>
               <h1 className="text-lg font-bold text-foreground tracking-tight">
-                节点推荐器
+                社区工具箱
               </h1>
               <p className="text-[10px] text-muted-foreground tracking-wide font-medium">
                 ChmlFrp社区
@@ -567,6 +574,20 @@ export function Sidebar({
             })}
           </ul>
         </nav>
+
+        {hasPendingUpdate && onInstallUpdate && (
+          <div className="px-3 pb-2">
+            <button
+              onClick={onInstallUpdate}
+              className="w-full flex items-center gap-2 px-3 py-2 rounded-xl bg-primary/10 hover:bg-primary/20 text-primary text-xs font-medium transition-all duration-200 group border border-primary/20"
+              title="退出时也会自动安装"
+            >
+              <RotateCcw className="w-3.5 h-3.5 group-hover:rotate-180 transition-transform duration-500" />
+              <span>立即更新</span>
+              <span className="ml-auto w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+            </button>
+          </div>
+        )}
 
         <div
           className="p-4 border-t border-border/30 relative"
@@ -696,7 +717,7 @@ export function Sidebar({
               }}
             >
               <h1 className="text-lg font-bold text-foreground tracking-tight">
-                节点推荐器
+                社区工具箱
               </h1>
               <p className="text-[10px] text-muted-foreground tracking-wide font-medium">
                 ChmlFrp社区
@@ -767,6 +788,39 @@ export function Sidebar({
               })}
             </ul>
           </nav>
+
+          {hasPendingUpdate && onInstallUpdate && (
+            <div
+              className="px-3 pb-2"
+              style={{
+                transition: "all 0.5s cubic-bezier(0.32, 0.72, 0, 1)",
+              }}
+            >
+              <button
+                onClick={onInstallUpdate}
+                className={cn(
+                  "w-full flex items-center rounded-xl bg-primary/10 hover:bg-primary/20 text-primary text-xs font-medium transition-all duration-200 group border border-primary/20",
+                  collapsed ? "justify-center px-2 py-2" : "gap-2 px-3 py-2",
+                )}
+                title={collapsed ? "立即更新（退出时也会自动安装）" : "退出时也会自动安装"}
+              >
+                <RotateCcw className="w-3.5 h-3.5 group-hover:rotate-180 transition-transform duration-500 flex-shrink-0" />
+                <span
+                  className="tracking-tight whitespace-nowrap overflow-hidden"
+                  style={{
+                    opacity: collapsed ? 0 : 1,
+                    transform: collapsed ? "translateX(-10px)" : "translateX(0)",
+                    transition: "all 0.5s cubic-bezier(0.32, 0.72, 0, 1)",
+                  }}
+                >
+                  立即更新
+                </span>
+                {!collapsed && (
+                  <span className="ml-auto w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+                )}
+              </button>
+            </div>
+          )}
 
           <div
             className="relative border-t border-sidebar-border/30"

@@ -1,4 +1,4 @@
-import { Sparkles, Download, Check, AlertCircle } from "lucide-react";
+import { Sparkles, Download, Check, AlertCircle, RotateCcw } from "lucide-react";
 import {
   Item,
   ItemContent,
@@ -14,7 +14,11 @@ interface UpdateSectionProps {
   onCheckUpdate: () => void;
   updateInfo: UpdateInfo | null;
   onUpdate: () => void;
+  /** 下载完成后点击"立即重启更新"运行安装包 */
+  onInstall: () => void;
   isDownloading: boolean;
+  /** 安装包是否已下载完成，等待用户确认重启 */
+  downloaded: boolean;
   downloadProgress: number;
   autoCheckEnabled: boolean;
   onAutoCheckChange: (enabled: boolean) => void;
@@ -26,7 +30,9 @@ export function UpdateSection({
   onCheckUpdate,
   updateInfo,
   onUpdate,
+  onInstall,
   isDownloading,
+  downloaded,
   downloadProgress,
   autoCheckEnabled,
   onAutoCheckChange,
@@ -104,7 +110,9 @@ export function UpdateSection({
                 {updateInfo.version ? (
                   <>
                     <AlertCircle className="w-4 h-4 text-yellow-500" />
-                    <ItemTitle className="text-yellow-500">发现新版本</ItemTitle>
+                    <ItemTitle className="text-yellow-500">
+                      {downloaded ? "更新已下载完成" : "发现新版本"}
+                    </ItemTitle>
                   </>
                 ) : (
                   <>
@@ -122,6 +130,9 @@ export function UpdateSection({
                         ({formatDate(updateInfo.date)})
                       </span>
                     )}
+                    {downloaded && (
+                      <span className="ml-2 text-green-500">· 已就绪，等待重启安装</span>
+                    )}
                   </span>
                 ) : (
                   <span>v{currentVersion}</span>
@@ -130,14 +141,24 @@ export function UpdateSection({
             </ItemContent>
             {updateInfo.version && (
               <ItemActions>
-                <button
-                  onClick={onUpdate}
-                  disabled={isDownloading}
-                  className="flex items-center gap-1 px-3 py-1.5 text-xs rounded bg-primary text-primary-foreground hover:opacity-90 transition-colors disabled:opacity-50"
-                >
-                  <Download className="w-3 h-3" />
-                  {isDownloading ? `${downloadProgress.toFixed(0)}%` : "立即更新"}
-                </button>
+                {downloaded ? (
+                  <button
+                    onClick={onInstall}
+                    className="flex items-center gap-1 px-3 py-1.5 text-xs rounded bg-primary text-primary-foreground hover:opacity-90 transition-colors"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    立即重启更新
+                  </button>
+                ) : (
+                  <button
+                    onClick={onUpdate}
+                    disabled={isDownloading}
+                    className="flex items-center gap-1 px-3 py-1.5 text-xs rounded bg-primary text-primary-foreground hover:opacity-90 transition-colors disabled:opacity-50"
+                  >
+                    <Download className="w-3 h-3" />
+                    {isDownloading ? `${downloadProgress.toFixed(0)}%` : "立即更新"}
+                  </button>
+                )}
               </ItemActions>
             )}
           </Item>

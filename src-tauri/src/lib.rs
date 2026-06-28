@@ -2,6 +2,7 @@ mod commands;
 mod models;
 mod utils;
 
+use commands::update::{launch_installer_silent, take_pending_installer, PendingInstaller};
 use models::FrpcProcesses;
 use tauri::Manager;
 
@@ -18,8 +19,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(FrpcProcesses::new())
+        .manage(PendingInstaller::new())
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {
                 #[cfg(target_os = "macos")]
@@ -70,6 +71,11 @@ pub fn run() {
             commands::check_frpc_exists,
             commands::get_frpc_download_url,
             commands::download_frpc,
+            commands::check_app_update,
+            commands::download_app_update,
+            commands::install_app_update,
+            commands::get_pending_installer,
+            commands::clear_pending_installer,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -81,6 +87,13 @@ pub fn run() {
                         let _ = window.show();
                         let _ = window.set_focus();
                     }
+                }
+            }
+            // 应用退出时：若有已下载完成的待安装更新，自动启动安装程序
+            tauri::RunEvent::ExitRequested { .. } => {
+                if let Some(installer_path) = take_pending_installer(app_handle) {
+                    log::info!("检测到待安装更新，退出时自动启动安装程序");
+                    launch_installer_silent(app_handle, &installer_path);
                 }
             }
             _ => {

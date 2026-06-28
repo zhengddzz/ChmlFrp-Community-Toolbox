@@ -17,6 +17,7 @@ export function useUpdateCheck() {
             version: result.version || "",
             date: result.date,
             body: result.body,
+            mandatory: result.mandatory,
           });
         }
       } catch (error) {
