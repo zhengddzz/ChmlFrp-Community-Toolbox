@@ -144,13 +144,11 @@ export function UpdateDialog({
   isOpen,
   onClose,
   onUpdate,
-  onInstall,
   version,
   date,
   body,
   isDownloading = false,
   downloaded = false,
-  downloadProgress = 0,
 }: UpdateDialogProps) {
   const markdownContent = body ? renderMarkdown(body) : "";
 
