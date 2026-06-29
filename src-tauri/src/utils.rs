@@ -10,15 +10,8 @@ pub fn frpc_file_name() -> &'static str {
 }
 
 pub fn get_app_data_dir(app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(exe_dir) = exe_path.parent() {
-            let data_dir = exe_dir.join("data");
-            if std::fs::create_dir_all(&data_dir).is_ok() && data_dir.exists() {
-                return Ok(data_dir);
-            }
-        }
-    }
-
+    // 统一使用 Tauri 标准 app_data_dir，确保前端 fs 插件（作用域为 $APPDATA）可正常读取
+    // 旧版本曾使用 <exe_dir>/data，但该路径不在 fs 插件授权范围内，导致背景图/视频加载失败
     let app_data = app_handle
         .path()
         .app_data_dir()

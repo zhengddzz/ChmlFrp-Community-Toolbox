@@ -39,8 +39,6 @@ interface AppearanceSectionProps {
   setVideoVolume: (value: number) => void;
   sidebarMode: SidebarMode;
   setSidebarMode: (value: SidebarMode) => void;
-  tunnelSoundEnabled: boolean;
-  setTunnelSoundEnabled: (value: boolean) => void;
   onSelectBackgroundImage: () => void;
   onClearBackgroundImage: () => void;
 }
@@ -69,8 +67,6 @@ export function AppearanceSection({
   setVideoVolume,
   sidebarMode,
   setSidebarMode,
-  tunnelSoundEnabled,
-  setTunnelSoundEnabled,
   onSelectBackgroundImage,
   onClearBackgroundImage,
 }: AppearanceSectionProps) {
@@ -521,31 +517,21 @@ export function AppearanceSection({
 
         <Item variant="outline" className="border-0">
           <ItemContent>
-            <ItemTitle>音效</ItemTitle>
+            <ItemTitle>反馈与建议</ItemTitle>
             <ItemDescription className="text-xs">
-              部分操作提示音（例如隧道启动成功的提示音）
+              在 GitHub Issues 提交问题反馈或功能建议
             </ItemDescription>
           </ItemContent>
           <ItemActions>
             <button
               onClick={() => {
-                const newValue = !tunnelSoundEnabled;
-                setTunnelSoundEnabled(newValue);
-                localStorage.setItem("tunnelSoundEnabled", newValue.toString());
+                void import("@tauri-apps/plugin-opener").then(({ openUrl }) =>
+                  openUrl("https://github.com/zhengddzz/ChmlFrp-NodeSpeedTest/issues"),
+                );
               }}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors outline-none outline-0 ${
-                tunnelSoundEnabled
-                  ? "bg-foreground"
-                  : "bg-muted dark:bg-foreground/12"
-              } cursor-pointer`}
-              role="switch"
-              aria-checked={tunnelSoundEnabled}
+              className="px-3 py-1.5 text-xs rounded bg-foreground text-background hover:opacity-90 transition-opacity cursor-pointer"
             >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-background shadow-sm transition-transform ${
-                  tunnelSoundEnabled ? "translate-x-6" : "translate-x-1"
-                }`}
-              />
+              前往反馈
             </button>
           </ItemActions>
         </Item>

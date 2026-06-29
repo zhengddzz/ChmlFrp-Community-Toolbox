@@ -31,7 +31,7 @@ const PROVIDER_GUIDE: Record<
   { url: string; urlLabel: string; tip: string }
 > = {
   dnspodCn: {
-    url: "https://console.dnspod.cn/account/token/token",
+    url: "https://console.dnspod.cn/account/token/apikey",
     urlLabel: "console.dnspod.cn",
     tip: "在「API 密钥」中创建密钥，获得 SecretId 与 SecretKey",
   },

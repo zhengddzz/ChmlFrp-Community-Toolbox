@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { readFile } from "@tauri-apps/plugin-fs";
+import { toast } from "sonner";
 import {
   type EffectType,
   getInitialVideoStartSound,
@@ -201,7 +202,7 @@ export function useBackground(): UseBackgroundReturn {
             currentBlobUrl = blobUrl;
             setVideoSrc(blobUrl);
             setVideoLoadError(false);
-          } catch {
+          } catch (err) {
             if (!isMounted) return;
 
             if (retryCount < 2) {
@@ -219,6 +220,8 @@ export function useBackground(): UseBackgroundReturn {
             }
             setVideoSrc(null);
             setVideoLoadError(true);
+            const msg = err instanceof Error ? err.message : String(err);
+            toast.error(`背景视频加载失败: ${msg}`, { duration: 5000 });
           }
         } else if (backgroundImage.startsWith("file://")) {
           const filePath = backgroundImage.replace("file://", "");
@@ -237,7 +240,7 @@ export function useBackground(): UseBackgroundReturn {
             currentBlobUrl = blobUrl;
             setVideoSrc(blobUrl);
             setVideoLoadError(false);
-          } catch {
+          } catch (err) {
             if (!isMounted) return;
 
             if (retryCount < 2) {
@@ -255,6 +258,8 @@ export function useBackground(): UseBackgroundReturn {
             }
             setVideoSrc(null);
             setVideoLoadError(true);
+            const msg = err instanceof Error ? err.message : String(err);
+            toast.error(`背景视频加载失败: ${msg}`, { duration: 5000 });
           }
         } else {
           setVideoSrc(backgroundImage);
@@ -302,7 +307,7 @@ export function useBackground(): UseBackgroundReturn {
             }
             currentBlobUrl = blobUrl;
             setImageSrc(blobUrl);
-          } catch {
+          } catch (err) {
             if (!isMounted) return;
 
             if (currentBlobUrl) {
@@ -310,6 +315,9 @@ export function useBackground(): UseBackgroundReturn {
               currentBlobUrl = null;
             }
             setImageSrc(null);
+            // 背景图加载失败时提示用户具体错误，便于排查路径/权限问题
+            const msg = err instanceof Error ? err.message : String(err);
+            toast.error(`背景图加载失败: ${msg}`, { duration: 5000 });
           }
         } else {
           setImageSrc(backgroundImage);

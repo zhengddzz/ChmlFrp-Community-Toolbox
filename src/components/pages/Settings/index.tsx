@@ -77,6 +77,18 @@ export function Settings() {
     updateService.getCurrentVersion().then(setCurrentVersion);
   }, []);
 
+  // 启动时检查是否有未完成的待安装更新（上次下载完成但未安装）
+  useEffect(() => {
+    const restorePendingInstaller = async () => {
+      const pendingPath = await updateService.getPendingInstaller();
+      if (pendingPath) {
+        setInstallerPath(pendingPath);
+        setDownloaded(true);
+      }
+    };
+    restorePendingInstaller();
+  }, []);
+
   useEffect(() => {
     localStorage.setItem("showTitleBar", showTitleBar.toString());
     window.dispatchEvent(new Event("titleBarVisibilityChanged"));
@@ -163,6 +175,10 @@ export function Settings() {
       });
       setInstallerPath(filePath);
       setDownloaded(true);
+      // 通知 App 层同步下载完成状态，使侧边栏"立即更新"按钮显示
+      window.dispatchEvent(
+        new CustomEvent("update-downloaded", { detail: { installerPath: filePath } }),
+      );
       toast.success("更新已下载完成，可随时重启安装");
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : "下载更新失败";
@@ -206,10 +222,9 @@ export function Settings() {
     updateService.setAutoCheckEnabled(enabled);
   }, []);
 
-  // 关闭更新对话框：重置下载状态，保留已下载的安装包路径以便后续手动安装
+  // 关闭更新对话框：仅关闭弹窗，保留 downloaded 状态以便侧边栏/UpdateSection 继续显示"立即更新"
   const handleCloseUpdateDialog = useCallback(() => {
     setUpdateInfo(null);
-    setDownloaded(false);
   }, []);
 
   return (
@@ -243,8 +258,6 @@ export function Settings() {
         setVideoVolume={setVideoVolume}
         sidebarMode={sidebarMode}
         setSidebarMode={handleSidebarModeChange}
-        tunnelSoundEnabled={false}
-        setTunnelSoundEnabled={() => {}}
         onSelectBackgroundImage={handleSelectBackgroundImage}
         onClearBackgroundImage={handleClearBackgroundImage}
       />

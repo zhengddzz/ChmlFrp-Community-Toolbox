@@ -158,8 +158,7 @@ function App() {
 
   const handleCloseUpdateDialog = useCallback(() => {
     setUpdateInfo(null);
-    // 关闭弹窗时重置下载状态（保留已下载的安装包路径以便后续手动安装）
-    setDownloaded(false);
+    // 仅关闭弹窗，保留 downloaded 状态以便侧边栏"立即更新"按钮继续显示
   }, [setUpdateInfo]);
 
   // 应用启动时检查是否有未完成的待安装更新（上次下载完成但未安装）
@@ -186,6 +185,22 @@ function App() {
     setupListener();
     return () => {
       if (unlistenFn) unlistenFn();
+    };
+  }, []);
+
+  // 监听 Settings 页派发的下载完成事件，同步 downloaded/installerPath 状态
+  // 使侧边栏"立即更新"按钮在手动检查更新下载完成后正常显示
+  useEffect(() => {
+    const handleUpdateDownloaded = (e: Event) => {
+      const detail = (e as CustomEvent<{ installerPath: string }>).detail;
+      if (detail?.installerPath) {
+        setInstallerPath(detail.installerPath);
+      }
+      setDownloaded(true);
+    };
+    window.addEventListener("update-downloaded", handleUpdateDownloaded);
+    return () => {
+      window.removeEventListener("update-downloaded", handleUpdateDownloaded);
     };
   }, []);
 
