@@ -7,6 +7,10 @@ pub mod file_server;
 pub mod frpc;
 pub mod download;
 pub mod update;
+pub mod dns_provider;
+pub mod dns_config;
+pub mod dns_monitor;
+pub mod window;
 
 pub use http::*;
 pub use tcping::*;
@@ -17,3 +21,6 @@ pub use file_server::*;
 pub use frpc::*;
 pub use download::*;
 pub use update::*;
+pub use dns_config::*;
+pub use dns_monitor::*;
+pub use window::*;

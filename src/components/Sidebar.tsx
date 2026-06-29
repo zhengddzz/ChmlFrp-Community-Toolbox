@@ -8,6 +8,7 @@ import {
   User,
   Network,
   RotateCcw,
+  Shield,
 } from "lucide-react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import {
@@ -285,6 +286,7 @@ export function Sidebar({
 
   const menuItems = [
     { id: "node-test", label: "节点推荐", icon: Network },
+    { id: "dns-failover", label: "DNS 容灾", icon: Shield },
     { id: "settings", label: "设置", icon: SettingsIcon },
   ];
 

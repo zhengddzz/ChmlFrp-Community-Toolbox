@@ -3,6 +3,7 @@ import { Sidebar } from "@/components/Sidebar";
 import { TitleBar, WindowControls } from "@/components/TitleBar";
 import { NodeTest } from "@/components/pages/NodeTest";
 import { Settings } from "@/components/pages/Settings";
+import { DnsFailover } from "@/components/pages/DnsFailover";
 import { getStoredUser, type StoredUser } from "@/services/api";
 import { useAppTheme } from "@/components/App/hooks/useAppTheme";
 import { useTitleBar } from "@/components/App/hooks/useTitleBar";
@@ -10,6 +11,7 @@ import { useBackground } from "@/components/App/hooks/useBackground";
 import { useUpdateCheck } from "@/components/App/hooks/useUpdateCheck";
 import { BackgroundLayer } from "@/components/App/components/BackgroundLayer";
 import { UpdateDialog } from "@/components/dialogs/UpdateDialog";
+import { CloseConfirmDialog } from "@/components/dialogs/CloseConfirmDialog";
 import { getInitialSidebarMode, type SidebarMode } from "@/lib/settings-utils";
 import { updateService } from "@/services/updateService";
 import { toast } from "sonner";
@@ -38,6 +40,8 @@ function App() {
   const [downloaded, setDownloaded] = useState(false);
   // 下载完成的安装包路径，供用户确认后调用安装
   const [installerPath, setInstallerPath] = useState<string | null>(null);
+  // 关闭确认对话框（由后端 window-close-requested 事件触发）
+  const [showCloseDialog, setShowCloseDialog] = useState(false);
 
   const shouldShowTitleBar = isMacOS
     ? showTitleBar
@@ -91,6 +95,8 @@ function App() {
     switch (activeTab) {
       case "node-test":
         return <NodeTest user={user} onTestingChange={handleTestingChange} />;
+      case "dns-failover":
+        return <DnsFailover user={user} />;
       case "settings":
         return <Settings />;
       default:
@@ -168,6 +174,21 @@ function App() {
     restorePendingInstaller();
   }, []);
 
+  // 监听后端窗口关闭请求事件，弹出关闭确认对话框
+  useEffect(() => {
+    let unlistenFn: (() => void) | null = null;
+    const setupListener = async () => {
+      const { listen } = await import("@tauri-apps/api/event");
+      unlistenFn = await listen("window-close-requested", () => {
+        setShowCloseDialog(true);
+      });
+    };
+    setupListener();
+    return () => {
+      if (unlistenFn) unlistenFn();
+    };
+  }, []);
+
   return (
     <>
       <UpdateDialog
@@ -181,6 +202,10 @@ function App() {
         isDownloading={isDownloading}
         downloaded={downloaded}
         downloadProgress={downloadProgress}
+      />
+      <CloseConfirmDialog
+        isOpen={showCloseDialog}
+        onClose={() => setShowCloseDialog(false)}
       />
       <div
         ref={appContainerRef}

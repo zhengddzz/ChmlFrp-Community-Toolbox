@@ -2,9 +2,15 @@ mod commands;
 mod models;
 mod utils;
 
+use commands::dns_config::DnsRuntimeState;
+use commands::dns_monitor;
 use commands::update::{launch_installer_silent, take_pending_installer, PendingInstaller};
 use models::FrpcProcesses;
-use tauri::Manager;
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    Emitter, Manager,
+};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -21,6 +27,14 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(FrpcProcesses::new())
         .manage(PendingInstaller::new())
+        .manage(DnsRuntimeState::new())
+        // 拦截窗口关闭事件：阻止直接关闭，通知前端弹出关闭确认对话框
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.app_handle().emit("window-close-requested", ());
+            }
+        })
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {
                 #[cfg(target_os = "macos")]
@@ -45,6 +59,56 @@ pub fn run() {
                         .build(),
                 )?;
             }
+
+            // 创建系统托盘图标及菜单
+            let show_item = MenuItem::with_id(app, "tray-show", "显示主窗口", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "tray-quit", "退出程序", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+
+            let mut tray_builder = TrayIconBuilder::with_id("main-tray")
+                .tooltip("ChmlFrp社区工具箱")
+                .menu(&menu)
+                .on_menu_event(|app, event| {
+                    match event.id.as_ref() {
+                        "tray-show" => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                                let _ = window.unminimize();
+                            }
+                        }
+                        "tray-quit" => {
+                            app.exit(0);
+                        }
+                        _ => {}
+                    }
+                })
+                .on_tray_icon_event(|tray, event| {
+                    // 左键单击托盘图标时显示主窗口
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        let app = tray.app_handle();
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                            let _ = window.unminimize();
+                        }
+                    }
+                });
+
+            // 使用应用默认窗口图标作为托盘图标
+            if let Some(icon) = app.default_window_icon() {
+                tray_builder = tray_builder.icon(icon.clone());
+            }
+
+            tray_builder.build(app)?;
+
+            // 启动 DNS 容灾监控常驻任务
+            dns_monitor::start_monitor(app.handle().clone());
 
             Ok(())
         })
@@ -76,6 +140,20 @@ pub fn run() {
             commands::install_app_update,
             commands::get_pending_installer,
             commands::clear_pending_installer,
+            // DNS 容灾相关命令
+            commands::list_dns_credentials,
+            commands::save_dns_credential,
+            commands::delete_dns_credential,
+            commands::list_dns_tasks,
+            commands::save_dns_task,
+            commands::delete_dns_task,
+            commands::list_dns_logs,
+            commands::clear_dns_logs,
+            commands::list_dns_runtime,
+            commands::trigger_dns_check,
+            // 窗口与托盘相关命令
+            commands::minimize_to_tray,
+            commands::exit_app,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
