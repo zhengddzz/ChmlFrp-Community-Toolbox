@@ -61,6 +61,7 @@ export function TasksTab({ user }: TasksTabProps) {
   const [credentials, setCredentials] = useState<DnsCredential[]>([]);
   const [runtime, setRuntime] = useState<Record<string, TaskRuntime>>({});
   const [tunnels, setTunnels] = useState<Tunnel[]>([]);
+  const [tunnelsLoading, setTunnelsLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<DnsMonitorTask | null>(null);
 
@@ -75,21 +76,29 @@ export function TasksTab({ user }: TasksTabProps) {
       setList(tasks);
       setCredentials(creds);
       setRuntime(rt);
-      // 加载隧道列表（不传 token，让 fetchTunnels 自动处理认证）
-      try {
-        const tunnelList = await fetchTunnels();
-        setTunnels(tunnelList);
-      } catch (e) {
-        toast.error(
-          e instanceof Error ? e.message : "获取隧道列表失败，请检查网络或重新登录",
-        );
-      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "加载失败");
     } finally {
       setLoading(false);
     }
   }, []);
+
+  // 仅在新建/编辑任务打开对话框时加载隧道列表
+  // 避免每次进入 DNS 容灾页面都等待隧道 API 响应
+  const ensureTunnelsLoaded = useCallback(async () => {
+    if (tunnels.length > 0 || tunnelsLoading) return;
+    setTunnelsLoading(true);
+    try {
+      const tunnelList = await fetchTunnels();
+      setTunnels(tunnelList);
+    } catch (e) {
+      toast.error(
+        e instanceof Error ? e.message : "获取隧道列表失败，请检查网络或重新登录",
+      );
+    } finally {
+      setTunnelsLoading(false);
+    }
+  }, [tunnels.length, tunnelsLoading]);
 
   useEffect(() => {
     load();
@@ -119,6 +128,8 @@ export function TasksTab({ user }: TasksTabProps) {
       credentialId: cred.id,
       userToken: user.usertoken,
     });
+    // 打开对话框时加载隧道列表（仅首次加载，已加载则跳过）
+    void ensureTunnelsLoaded();
   };
 
   const handleEdit = (task: DnsMonitorTask) => {
@@ -127,6 +138,8 @@ export function TasksTab({ user }: TasksTabProps) {
       primaryTunnel: { ...task.primaryTunnel },
       backupTunnels: task.backupTunnels.map((b) => ({ ...b })),
     });
+    // 打开对话框时加载隧道列表（仅首次加载，已加载则跳过）
+    void ensureTunnelsLoaded();
   };
 
   const handleSave = async () => {
@@ -208,7 +221,7 @@ export function TasksTab({ user }: TasksTabProps) {
 
   if (loading) return <div className="text-sm text-muted-foreground">加载中...</div>;
 
-  const noTunnels = tunnels.length === 0;
+  const noTunnels = tunnels.length === 0 && !tunnelsLoading;
 
   return (
     <div className="space-y-4">
@@ -216,7 +229,7 @@ export function TasksTab({ user }: TasksTabProps) {
         <div>
           <h2 className="text-sm font-semibold text-foreground">监控任务</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            60 秒轮询隧道状态，主隧道连续失败自动切换，恢复后自动回切。阈值可自定义。
+            按自定义间隔轮询隧道状态，主隧道连续失败达阈值自动切换备用，恢复达阈值自动回切。
           </p>
         </div>
         <Button size="sm" onClick={handleAdd} className="gap-1.5">
@@ -411,6 +424,11 @@ export function TasksTab({ user }: TasksTabProps) {
                   <p className="text-xs text-muted-foreground py-2 text-center bg-muted/30 rounded-lg">
                     暂无隧道数据，请确认已登录账户且网络正常
                   </p>
+                ) : tunnelsLoading ? (
+                  <p className="text-xs text-muted-foreground py-2 text-center bg-muted/30 rounded-lg flex items-center justify-center gap-1.5">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    正在加载隧道列表...
+                  </p>
                 ) : (
                   <TunnelSelect
                     tunnels={tunnels}
@@ -431,7 +449,7 @@ export function TasksTab({ user }: TasksTabProps) {
                     variant="outline"
                     size="sm"
                     onClick={addBackup}
-                    disabled={noTunnels}
+                    disabled={noTunnels || tunnelsLoading}
                     className="h-7 gap-1 text-xs"
                   >
                     <Plus className="w-3 h-3" />

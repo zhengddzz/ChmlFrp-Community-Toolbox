@@ -19,7 +19,7 @@ import { Network, RefreshCw, CheckCircle2, XCircle, Clock, Filter, History, Glob
 import { toast } from "sonner";
 import { fetchNodes, type Node, type StoredUser } from "@/services/api";
 import { getInitialEffectType, type EffectType } from "@/lib/settings-utils";
-import { SpeedTestDialog, getBatchTestState, subscribeBatchTestState } from "@/components/dialogs/BatchSpeedTestDialog";
+import { SpeedTestDialog, getBatchTestState, subscribeBatchTestState, requestStopBatchTest } from "@/components/dialogs/BatchSpeedTestDialog";
 import { BatchTestFloatingWidget } from "@/components/dialogs/BatchTestFloatingWidget";
 import { NodeHistoryDialog } from "@/components/dialogs/NodeHistoryDialog";
 import { addTestHistory } from "@/services/testHistoryService";
@@ -94,11 +94,15 @@ export function NodeTest({ user, onTestingChange }: NodeTestProps) {
   const [batchTestNodes, setBatchTestNodes] = useState<NodeWithTest[] | null>(null);
   const [showBatchTestDialog, setShowBatchTestDialog] = useState(false);
   const [historyNode, setHistoryNode] = useState<{ node: NodeWithTest; type: "latency" | "speed" } | null>(null);
-  const stopTestingRef = useRef(false);
 
   useEffect(() => {
     return subscribeBatchTestState(() => {
       const state = getBatchTestState();
+      // 测试开始时同步 testingAll 为 true，让顶部显示"测试中..."和"停止"按钮
+      if (state.isRunning && !testingAll) {
+        setTestingAll(true);
+      }
+      // 测试结束时同步 testingAll 为 false
       if (!state.isRunning && testingAll) {
         setTestingAll(false);
       }
@@ -212,9 +216,10 @@ export function NodeTest({ user, onTestingChange }: NodeTestProps) {
   }, [saveTestResults]);
 
   const stopTesting = useCallback(() => {
-    stopTestingRef.current = true;
-    setTestingAll(false);
-    toast.info("已停止测试");
+    // 通过全局停止处理器通知 SpeedTestDialog 停止测试
+    // SpeedTestDialog 会在当前节点测试完成后停止，不立即中断
+    requestStopBatchTest();
+    toast.info("将在当前节点测试完成后停止");
   }, []);
 
   useEffect(() => {
@@ -623,13 +628,13 @@ export function NodeTest({ user, onTestingChange }: NodeTestProps) {
           </EmptyContent>
         </Empty>
       ) : (
-        <ScrollArea className="flex-1 min-h-0 pr-1">
+        <div className="flex-1 min-h-0 overflow-auto pr-1">
           <div className={cn(
             "rounded-md border bg-card",
             effectType === "frosted" && "backdrop-blur-md bg-card/80",
             effectType === "translucent" && "bg-card/80",
           )}>
-            <Table>
+            <Table className="min-w-[820px]">
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-12">
@@ -788,7 +793,7 @@ export function NodeTest({ user, onTestingChange }: NodeTestProps) {
               </TableBody>
             </Table>
           </div>
-        </ScrollArea>
+        </div>
       )}
 
       <SpeedTestDialog

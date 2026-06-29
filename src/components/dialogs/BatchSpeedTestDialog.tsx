@@ -66,6 +66,15 @@ export function getBatchTestState(): BatchTestState {
   return globalState;
 }
 
+// 全局停止处理器：允许外部（如顶部停止按钮）触发 SpeedTestDialog 内部的停止逻辑
+let globalStopHandler: (() => void) | null = null;
+
+export function requestStopBatchTest(): void {
+  if (globalStopHandler) {
+    globalStopHandler();
+  }
+}
+
 const stageProgress: Record<string, number> = {
   idle: 0,
   checking_frpc: 5,
@@ -181,12 +190,20 @@ export function SpeedTestDialog({ isOpen, onClose, nodeNames, onTestComplete }: 
 
   useEffect(() => {
     if (isOpen) {
+      // 打开对话框时，如果测试不在运行中，清除上次的日志和结果（全新开始）
+      // 这样可以确保每次打开都是干净的状态，避免残留上次测试的日志
+      if (!globalState.isRunning) {
+        globalState.logs = [];
+        globalState.results = [];
+        globalState.progress = null;
+      }
       setProgress(globalState.progress);
       setResults(globalState.results);
       setLogs(globalState.logs);
       setIsRunning(globalState.isRunning);
       setConfig(globalState.config);
       stopRef.current = false;
+      setIsStopping(false);
       setIsMinimizing(false);
       setSpeedTestSizeInput(globalState.config.speedTestSize.toString());
       if (isSingleMode && !globalState.isRunning) {
@@ -223,6 +240,7 @@ export function SpeedTestDialog({ isOpen, onClose, nodeNames, onTestComplete }: 
     setResults([]);
     setLogs([]);
     stopRef.current = false;
+    setIsStopping(false);
 
     if (isSingleMode) {
       setSingleNodeProgress({ stage: "idle", message: "准备测试", logs: [] });
@@ -321,6 +339,7 @@ export function SpeedTestDialog({ isOpen, onClose, nodeNames, onTestComplete }: 
     globalState.progress = null;
     setIsRunning(false);
     setProgress(null);
+    setIsStopping(false);
     notifyListeners();
 
     if (onTestCompleteRef.current) {
@@ -343,26 +362,40 @@ export function SpeedTestDialog({ isOpen, onClose, nodeNames, onTestComplete }: 
     }
   }, [nodeNames, config, addLog, isSingleMode]);
 
+  const [isMinimizing, setIsMinimizing] = useState(false);
+  const [isStopping, setIsStopping] = useState(false);
+  const isMinimizingRef = useRef(false);
+
   const handleStop = useCallback(() => {
+    if (stopRef.current) return; // 防止重复点击
+    // 只设置停止标志，不立即中断当前节点测试
+    // 当前节点测试完成后，循环将不再开始下一个节点的测试
     stopRef.current = true;
-    speedTestService.cancel();
-    speedTestService.forceCleanup();
-    addLog("正在停止测试...", "warning");
+    setIsStopping(true);
+    addLog("将在当前节点测试完成后停止", "warning");
   }, [addLog]);
 
-  const [isMinimizing, setIsMinimizing] = useState(false);
-  const isMinimizingRef = useRef(false);
+  // 注册全局停止处理器，供外部（如顶部停止按钮）调用
+  useEffect(() => {
+    globalStopHandler = handleStop;
+    return () => { globalStopHandler = null; };
+  }, [handleStop]);
+
+  const handleClose = useCallback(() => {
+    if (isRunning) {
+      // 运行中点击：触发停止（等当前节点完成），不关闭对话框
+      handleStop();
+      return;
+    }
+    // 非运行状态：清除日志后关闭
+    globalState.logs = [];
+    setLogs([]);
+    onClose();
+  }, [isRunning, handleStop, onClose]);
 
   useEffect(() => {
     isMinimizingRef.current = isMinimizing;
   }, [isMinimizing]);
-
-  const handleClose = useCallback(() => {
-    if (isRunning) {
-      handleStop();
-    }
-    onClose();
-  }, [isRunning, handleStop, onClose]);
 
   const handleMinimize = useCallback(() => {
     setIsMinimizing(true);
@@ -667,8 +700,8 @@ export function SpeedTestDialog({ isOpen, onClose, nodeNames, onTestComplete }: 
         </div>
 
         <div className="flex justify-end gap-2 mt-4 pt-4 border-t">
-          <Button variant="outline" onClick={handleClose}>
-            {isRunning ? "取消" : "关闭"}
+          <Button variant="outline" onClick={handleClose} disabled={isStopping}>
+            {isRunning ? (isStopping ? "停止中..." : "停止") : "关闭"}
           </Button>
           {!isRunning && (isSingleMode ? !singleNodeResult?.success : results.length === 0) && (
             <Button

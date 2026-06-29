@@ -4,7 +4,7 @@ import { TitleBar, WindowControls } from "@/components/TitleBar";
 import { NodeTest } from "@/components/pages/NodeTest";
 import { Settings } from "@/components/pages/Settings";
 import { DnsFailover } from "@/components/pages/DnsFailover";
-import { getStoredUser, type StoredUser } from "@/services/api";
+import { getStoredUser, clearStoredUser, fetchUserInfo, type StoredUser } from "@/services/api";
 import { useAppTheme } from "@/components/App/hooks/useAppTheme";
 import { useTitleBar } from "@/components/App/hooks/useTitleBar";
 import { useBackground } from "@/components/App/hooks/useBackground";
@@ -203,6 +203,36 @@ function App() {
       window.removeEventListener("update-downloaded", handleUpdateDownloaded);
     };
   }, []);
+
+  // 定期检查登录状态，避免 token 过期或服务端踢下线后用户无感知
+  // 每 1 分钟调用一次 /userinfo 接口验证；失败时清除登录并提示
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    const CHECK_INTERVAL_MS = 60 * 1000;
+
+    const checkLogin = async () => {
+      try {
+        await fetchUserInfo();
+        // 静默成功：token 仍有效，不提示避免打扰
+      } catch (err) {
+        if (cancelled) return;
+        const msg = err instanceof Error ? err.message : String(err);
+        // 仅在明确是认证类错误时清除登录，避免网络抖动误清除
+        if (/登录|过期|token|认证|unauthorized|401/i.test(msg)) {
+          clearStoredUser();
+          setUser(null);
+          toast.error("登录状态已失效，请重新登录");
+        }
+      }
+    };
+
+    const timer = window.setInterval(checkLogin, CHECK_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [user]);
 
   return (
     <>

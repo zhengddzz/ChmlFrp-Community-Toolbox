@@ -12,6 +12,7 @@ import {
 } from "./utils";
 import { AppearanceSection } from "./components/AppearanceSection";
 import { UpdateSection } from "./components/UpdateSection";
+import { MaintenanceSection } from "./components/MaintenanceSection";
 import { UpdateDialog } from "@/components/dialogs/UpdateDialog";
 import { updateService, type UpdateInfo } from "@/services/updateService";
 import { toast } from "sonner";
@@ -275,6 +276,8 @@ export function Settings() {
           autoCheckEnabled={autoCheckEnabled}
           onAutoCheckChange={handleAutoCheckChange}
         />
+
+      <MaintenanceSection />
     </div>
 
       {/* 更新对话框：手动检查发现新版本时弹出 */}
