@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { invoke } from "@tauri-apps/api/core";
 import { dnsFailoverService } from "@/services/dnsFailoverService";
+import { setCloseAction, type CloseAction } from "@/lib/settings-utils";
 import { toast } from "sonner";
 
 interface CloseConfirmDialogProps {
@@ -22,10 +23,12 @@ interface CloseConfirmDialogProps {
 export function CloseConfirmDialog({ isOpen, onClose }: CloseConfirmDialogProps) {
   const [enabledTasks, setEnabledTasks] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+  const [remember, setRemember] = useState(false);
 
-  // 对话框打开时检查是否有正在运行的容灾任务
+  // 对话框打开时检查是否有正在运行的容灾任务，并重置"记住选择"复选框
   useEffect(() => {
     if (!isOpen) return;
+    setRemember(false);
     setLoading(true);
     dnsFailoverService
       .listTasks()
@@ -41,22 +44,32 @@ export function CloseConfirmDialog({ isOpen, onClose }: CloseConfirmDialogProps)
       .finally(() => setLoading(false));
   }, [isOpen]);
 
+  // 用户勾选"记住"时，把所选行为存为默认，下次关闭直接执行不再弹窗
+  const persistIfRemembered = useCallback((action: CloseAction) => {
+    if (remember) {
+      setCloseAction(action);
+      toast.success(`已记住本次选择，下次关闭将自动${action === "minimize" ? "最小化到托盘" : "退出程序"}（可在设置中修改）`);
+    }
+  }, [remember]);
+
   const handleMinimizeToTray = useCallback(async () => {
+    persistIfRemembered("minimize");
     try {
       await invoke("minimize_to_tray");
       onClose();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "最小化失败");
     }
-  }, [onClose]);
+  }, [onClose, persistIfRemembered]);
 
   const handleExitApp = useCallback(async () => {
+    persistIfRemembered("exit");
     try {
       await invoke("exit_app");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "退出失败");
     }
-  }, []);
+  }, [persistIfRemembered]);
 
   const hasRunningTasks = enabledTasks.length > 0;
 
@@ -99,6 +112,18 @@ export function CloseConfirmDialog({ isOpen, onClose }: CloseConfirmDialogProps)
             </div>
           </DialogDescription>
         </DialogHeader>
+
+        {/* 记住选择复选框：勾选后本次点击的行为会成为下次默认，不再弹窗 */}
+        <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={remember}
+            onChange={(e) => setRemember(e.target.checked)}
+            className="rounded border-border"
+          />
+          记住我的选择（下次不再询问，可在设置中修改）
+        </label>
+
         <DialogFooter className="flex-col sm:flex-row gap-2">
           <Button
             variant="outline"

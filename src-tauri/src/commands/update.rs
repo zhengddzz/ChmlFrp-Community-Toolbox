@@ -358,6 +358,68 @@ pub async fn clear_pending_installer(
     Ok(())
 }
 
+/// 启动静默更新后台进程（完全无窗口）
+/// 使用 PowerShell 隐藏窗口 + CREATE_NO_WINDOW 标志，用户看不到任何窗口
+/// 流程：等待主应用退出 → NSIS /S 静默安装 → Start-Process 启动新应用（无 cmd 窗口）
+/// 返回 true 表示后台进程已成功启动
+fn launch_silent_update_background(installer_path: &str) -> bool {
+    let app_exe = match std::env::current_exe() {
+        Ok(p) => p.to_string_lossy().to_string(),
+        Err(e) => {
+            log::error!("获取应用路径失败: {}", e);
+            return false;
+        }
+    };
+    let current_pid = std::process::id();
+
+    // PowerShell 脚本：等待主应用退出 → 强制结束残留 → 静默安装 → 启动新应用
+    // -WindowStyle Hidden + CREATE_NO_WINDOW 实现完全无窗口
+    // 启动新应用用 ShellExecute，不继承 PowerShell 控制台，避免出现 cmd 窗口
+    let script = format!(
+        r#"$ErrorActionPreference='SilentlyContinue';
+$procId={pid};
+$installer='{installer}';
+$appExe='{app_exe}';
+$elapsed=0;
+while((Get-Process -Id $procId -ErrorAction SilentlyContinue) -and $elapsed -lt 30){{Start-Sleep -Milliseconds 500;$elapsed+=0.5}};
+Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue;
+Start-Sleep -Milliseconds 800;
+Start-Process -FilePath $installer -ArgumentList '/S' -Wait;
+Start-Sleep -Milliseconds 300;
+$shell=New-Object -ComObject Shell.Application;
+$shell.ShellExecute($appExe,'','','open',1)"#,
+        pid = current_pid,
+        installer = installer_path.replace('\'', "''"),
+        app_exe = app_exe.replace('\'', "''"),
+    );
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // CREATE_NO_WINDOW = 0x08000000，确保不出现任何控制台窗口
+        match std::process::Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
+            .creation_flags(0x08000000)
+            .spawn()
+        {
+            Ok(_) => {
+                log::info!("已启动静默更新后台进程: {}", installer_path);
+                true
+            }
+            Err(e) => {
+                log::error!("启动静默更新后台进程失败: {}", e);
+                false
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = script;
+        log::error!("静默更新后台进程仅支持 Windows");
+        false
+    }
+}
+
 /// 仅启动安装程序，不退出当前应用（用于应用退出时的自动安装钩子）
 /// 返回 true 表示已成功启动安装程序
 pub fn launch_installer_silent(_app_handle: &tauri::AppHandle, file_path: &str) -> bool {
@@ -387,10 +449,14 @@ pub fn launch_installer_silent(_app_handle: &tauri::AppHandle, file_path: &str) 
                 .to_lowercase();
             if ext == "msi" {
                 std::process::Command::new("msiexec")
-                    .arg("/i")
-                    .arg(file_path)
+                    .args(["/i", file_path, "/quiet", "/norestart"])
                     .spawn()
             } else {
+                // NSIS exe：用静默后台进程实现安装 + 自动启动新应用（完全无窗口）
+                if launch_silent_update_background(file_path) {
+                    return true;
+                }
+                // 后台进程启动失败则回退到直接运行安装包
                 std::process::Command::new(file_path).spawn()
             }
         }
@@ -420,6 +486,8 @@ pub fn launch_installer_silent(_app_handle: &tauri::AppHandle, file_path: &str) 
 }
 
 /// 运行安装包并退出当前应用
+/// Windows 平台：生成 PowerShell 脚本，等待应用退出后静默安装（/S）并自动启动新应用
+/// 其他平台：直接启动安装器
 #[tauri::command]
 pub async fn install_app_update(
     app_handle: tauri::AppHandle,
@@ -445,22 +513,24 @@ pub async fn install_app_update(
 
     match os {
         "windows" => {
-            // Windows: exe 直接运行，msi 使用 msiexec
             let ext = path
                 .extension()
                 .and_then(|e| e.to_str())
                 .unwrap_or("")
                 .to_lowercase();
+
             if ext == "msi" {
+                // msi 使用 msiexec 静默安装
                 std::process::Command::new("msiexec")
-                    .arg("/i")
-                    .arg(&file_path)
+                    .args(["/i", &file_path, "/quiet", "/norestart"])
                     .spawn()
                     .map_err(|e| format!("启动安装程序失败: {}", e))?;
             } else {
-                std::process::Command::new(&file_path)
-                    .spawn()
-                    .map_err(|e| format!("启动安装程序失败: {}", e))?;
+                // NSIS exe：启动静默后台进程完成安装 + 自动启动新应用（完全无窗口）
+                // 后台进程是独立进程，不锁定主应用 exe
+                if !launch_silent_update_background(&file_path) {
+                    return Err("启动静默更新失败，请重试或手动运行安装包".to_string());
+                }
             }
         }
         "macos" => {
@@ -487,6 +557,9 @@ pub async fn install_app_update(
     }
 
     log::info!("已启动安装程序，应用即将退出以完成更新");
+
+    // 清除待安装记录，避免应用退出时 ExitRequested 钩子重复启动安装程序
+    let _ = take_pending_installer(&app_handle);
 
     // 退出当前应用，让安装程序接管
     app_handle.exit(0);

@@ -12,8 +12,9 @@ import { useUpdateCheck } from "@/components/App/hooks/useUpdateCheck";
 import { BackgroundLayer } from "@/components/App/components/BackgroundLayer";
 import { UpdateDialog } from "@/components/dialogs/UpdateDialog";
 import { CloseConfirmDialog } from "@/components/dialogs/CloseConfirmDialog";
-import { getInitialSidebarMode, type SidebarMode } from "@/lib/settings-utils";
+import { getInitialSidebarMode, getCloseAction, type SidebarMode } from "@/lib/settings-utils";
 import { updateService } from "@/services/updateService";
+import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 
 function App() {
@@ -173,13 +174,26 @@ function App() {
     restorePendingInstaller();
   }, []);
 
-  // 监听后端窗口关闭请求事件，弹出关闭确认对话框
+  // 监听后端窗口关闭请求事件
+  // 根据用户记忆的关闭行为决定：直接执行（minimize/exit）或弹出确认对话框（ask）
   useEffect(() => {
     let unlistenFn: (() => void) | null = null;
     const setupListener = async () => {
       const { listen } = await import("@tauri-apps/api/event");
       unlistenFn = await listen("window-close-requested", () => {
-        setShowCloseDialog(true);
+        const action = getCloseAction();
+        if (action === "minimize") {
+          invoke("minimize_to_tray").catch((e) =>
+            toast.error(e instanceof Error ? e.message : "最小化失败"),
+          );
+        } else if (action === "exit") {
+          invoke("exit_app").catch((e) =>
+            toast.error(e instanceof Error ? e.message : "退出失败"),
+          );
+        } else {
+          // ask: 每次询问，弹出确认对话框
+          setShowCloseDialog(true);
+        }
       });
     };
     setupListener();

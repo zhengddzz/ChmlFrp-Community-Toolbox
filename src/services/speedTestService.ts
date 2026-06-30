@@ -289,6 +289,16 @@ export class SpeedTestService {
       this.addLog(`删除隧道失败: ${error}`, "error");
     }
 
+    // 兜底：扫描列表清除所有遗留的 speedtest_ 临时隧道，避免异常退出导致残留
+    try {
+      const cleaned = await tunnelService.cleanupAllTempTunnels();
+      if (cleaned > 0) {
+        this.addLog(`已额外清理 ${cleaned} 个遗留临时隧道`, "warning");
+      }
+    } catch (error) {
+      this.addLog(`兜底清理失败: ${error}`, "error");
+    }
+
     try {
       await invoke("stop_tcp_speed_server");
       this.addLog("TCP 服务器已停止", "success");
@@ -431,6 +441,14 @@ export class SpeedTestService {
       if (tunnelInfo) {
         await tunnelService.deleteTempTunnel();
       }
+    } catch {
+      // ignore
+    }
+
+    // 兜底：扫描列表清除所有遗留的 speedtest_ 临时隧道
+    // 宁可多调用 API 也不放过任何一个残留
+    try {
+      await tunnelService.cleanupAllTempTunnels();
     } catch {
       // ignore
     }

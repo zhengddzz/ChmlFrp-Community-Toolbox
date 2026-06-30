@@ -35,8 +35,10 @@ export interface BatchTestState {
     total: number;
     currentNodeName: string;
     stage: string;
+    rawStage: string;
     nodeProgress?: number;
     nodeMessage?: string;
+    overallPercent: number;
   } | null;
   results: NodeResult[];
   logs: LogEntry[];
@@ -114,6 +116,18 @@ const stageLabels: Record<string, string> = {
   completed: "完成",
   error: "错误",
 };
+
+function calcNodeOverallPercent(stage: string, nodeProgress?: number): number {
+  const stageStart = stageProgress[stage as keyof typeof stageProgress] ?? 0;
+  const stageKeys = Object.keys(stageProgress);
+  const stageIndex = stageKeys.indexOf(stage);
+  const nextStageStart = stageIndex < stageKeys.length - 1 ? stageProgress[stageKeys[stageIndex + 1] as keyof typeof stageProgress] : 100;
+  const stageRange = nextStageStart - stageStart;
+  if (nodeProgress != null && nodeProgress > 0) {
+    return Math.min(100, stageStart + (nodeProgress / 100) * stageRange);
+  }
+  return stageStart;
+}
 
 function LogItem({ log }: { log: LogEntry }) {
   const getIcon = () => {
@@ -260,7 +274,9 @@ export function SpeedTestDialog({ isOpen, onClose, nodeNames, onTestComplete }: 
       }
 
       const nodeName = nodeNames[i];
-      const nodeProgress = { current: i + 1, total, currentNodeName: nodeName, stage: "starting" };
+      const nodeOverallPct = calcNodeOverallPercent("idle");
+      const overallPercent = ((i + nodeOverallPct / 100) / total) * 100;
+      const nodeProgress = { current: i + 1, total, currentNodeName: nodeName, stage: "准备中", rawStage: "idle", overallPercent };
       globalState.progress = nodeProgress;
       setProgress(nodeProgress);
       notifyListeners();
@@ -275,13 +291,18 @@ export function SpeedTestDialog({ isOpen, onClose, nodeNames, onTestComplete }: 
               setSingleNodeProgress(p);
             }
             const stageLabel = stageLabels[p.stage] || p.stage;
+            const nodeOverallPct = calcNodeOverallPercent(p.stage, p.progress);
+            const completedNodes = i;
+            const overallPercent = ((completedNodes + nodeOverallPct / 100) / total) * 100;
             const progressData = {
               current: i + 1,
               total,
               currentNodeName: nodeName,
               stage: stageLabel,
+              rawStage: p.stage,
               nodeProgress: p.progress,
               nodeMessage: p.message,
+              overallPercent,
             };
             globalState.progress = progressData;
             setProgress(progressData);
@@ -607,7 +628,10 @@ export function SpeedTestDialog({ isOpen, onClose, nodeNames, onTestComplete }: 
     );
   };
 
-  const renderBatchRunning = () => (
+  const renderBatchRunning = () => {
+    const overallProgress = progress!.overallPercent;
+
+    return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -642,7 +666,7 @@ export function SpeedTestDialog({ isOpen, onClose, nodeNames, onTestComplete }: 
           <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
             <div
               className="bg-blue-500 h-full rounded-full transition-all duration-200"
-              style={{ width: `${progress!.nodeProgress * 100}%` }}
+              style={{ width: `${progress!.nodeProgress}%` }}
             />
           </div>
         )}
@@ -651,17 +675,18 @@ export function SpeedTestDialog({ isOpen, onClose, nodeNames, onTestComplete }: 
       <div className="space-y-2">
         <div className="flex items-center justify-between text-xs text-muted-foreground">
           <span>总体进度</span>
-          <span>{progress!.current}/{progress!.total} ({((progress!.current / progress!.total) * 100).toFixed(0)}%)</span>
+          <span>{progress!.current}/{progress!.total} ({overallProgress.toFixed(1)}%)</span>
         </div>
         <div className="w-full bg-muted rounded-full h-2.5 overflow-hidden">
           <div
             className="bg-primary h-full rounded-full transition-all duration-300 ease-out"
-            style={{ width: `${(progress!.current / progress!.total) * 100}%` }}
+            style={{ width: `${overallProgress}%` }}
           />
         </div>
       </div>
     </div>
   );
+  };
 
   return (
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>

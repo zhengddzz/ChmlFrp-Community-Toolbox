@@ -144,6 +144,37 @@ export class TunnelService {
     }
   }
 
+  /**
+   * 彻底清理所有遗留的临时隧道（speedtest_ 前缀）
+   * 用于测速结束兜底，避免异常退出/记录丢失导致隧道残留
+   * 宁可多调用 API 也不放过任何一个
+   * @returns 实际删除的隧道数量
+   */
+  async cleanupAllTempTunnels(): Promise<number> {
+    const TEMP_TUNNEL_PREFIX = "speedtest";
+    try {
+      const tunnels = await fetchTunnels();
+      const tempTunnels = tunnels.filter((t) =>
+        t.name?.toLowerCase().startsWith(TEMP_TUNNEL_PREFIX),
+      );
+      if (tempTunnels.length === 0) return 0;
+
+      const results = await Promise.allSettled(
+        tempTunnels.map((t) => deleteTunnel(t.id)),
+      );
+      const succeeded = results.filter(
+        (r) => r.status === "fulfilled",
+      ).length;
+
+      // 清理完成后重置内部记录，避免后续 deleteTempTunnel 重复调用已删除的隧道
+      this.tempTunnel = null;
+      return succeeded;
+    } catch {
+      // 拉取列表失败时不阻塞主流程
+      return 0;
+    }
+  }
+
   getTempTunnel(): TempTunnelInfo | null {
     return this.tempTunnel;
   }

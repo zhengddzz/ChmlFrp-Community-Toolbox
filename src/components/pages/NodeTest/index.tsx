@@ -15,7 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Network, RefreshCw, CheckCircle2, XCircle, Clock, Filter, History, Globe, Users, ArrowUpDown, ArrowUp, ArrowDown, Search, CheckSquare, Square, SquareX, Gauge, Download, Zap, Loader2 } from "lucide-react";
+import { Network, RefreshCw, CheckCircle2, XCircle, Clock, Filter, History, Globe, Users, ArrowUpDown, ArrowUp, ArrowDown, Search, CheckSquare, Square, SquareX, Download, Zap, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { fetchNodes, type Node, type StoredUser } from "@/services/api";
 import { getInitialEffectType, type EffectType } from "@/lib/settings-utils";
@@ -634,7 +634,7 @@ export function NodeTest({ user, onTestingChange }: NodeTestProps) {
             effectType === "frosted" && "backdrop-blur-md bg-card/80",
             effectType === "translucent" && "bg-card/80",
           )}>
-            <Table className="min-w-[820px]">
+            <Table className="w-full">
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-12">
@@ -666,11 +666,11 @@ export function NodeTest({ user, onTestingChange }: NodeTestProps) {
                       )}
                     </button>
                   </TableHead>
-                  <TableHead>节点名称</TableHead>
-                  <TableHead>区域</TableHead>
-                  <TableHead>节点组</TableHead>
-                  <TableHead>地域</TableHead>
-                  <TableHead>状态</TableHead>
+                  <TableHead className="max-w-[180px]">节点名称</TableHead>
+                  <TableHead className="max-w-[140px]">区域</TableHead>
+                  <TableHead className="w-20">节点组</TableHead>
+                  <TableHead className="w-20">地域</TableHead>
+                  <TableHead className="w-24">状态</TableHead>
                   <TableHead>
                     <button
                       onClick={() => handleSort("latency")}
@@ -705,7 +705,9 @@ export function NodeTest({ user, onTestingChange }: NodeTestProps) {
             )}
           </button>
         </TableHead>
+        {/* 操作列已注释：节点右侧测试按钮与顶部测试组件存在显示差异，暂时隐藏
         <TableHead className="text-right">操作</TableHead>
+        */}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -730,8 +732,12 @@ export function NodeTest({ user, onTestingChange }: NodeTestProps) {
                       </button>
                     </TableCell>
                     <TableCell className="text-muted-foreground">{node.id}</TableCell>
-                    <TableCell className="font-medium">{highlightText(node.name, searchQuery)}</TableCell>
-                    <TableCell>{highlightText(node.area, searchQuery)}</TableCell>
+                    <TableCell className="font-medium max-w-[180px]">
+                      <span className="block truncate" title={node.name}>{highlightText(node.name, searchQuery)}</span>
+                    </TableCell>
+                    <TableCell className="max-w-[140px]">
+                      <span className="block truncate" title={node.area}>{highlightText(node.area, searchQuery)}</span>
+                    </TableCell>
                     <TableCell>
                       <Badge variant={node.nodegroup === "vip" ? "default" : "outline"} className="text-xs">
                         {node.nodegroup === "vip" ? "VIP" : "普通"}
@@ -773,6 +779,7 @@ export function NodeTest({ user, onTestingChange }: NodeTestProps) {
                         <span className="text-muted-foreground">-</span>
                       )}
                     </TableCell>
+                    {/* 节点右侧测试按钮已注释：与顶部测试组件存在显示差异（条形图/折线图不显示），暂时隐藏
                     <TableCell className="text-right">
                       <Button
                         variant="ghost"
@@ -788,6 +795,7 @@ export function NodeTest({ user, onTestingChange }: NodeTestProps) {
                         <Gauge className="h-3.5 w-3.5" />
                       </Button>
                     </TableCell>
+                    */}
                   </TableRow>
                 ))}
               </TableBody>

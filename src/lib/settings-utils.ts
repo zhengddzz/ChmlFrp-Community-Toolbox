@@ -2,6 +2,28 @@ export type SidebarMode = "classic" | "floating" | "floating_fixed";
 
 export type EffectType = "frosted" | "translucent" | "none";
 
+// 关闭窗口默认行为
+// - ask: 每次询问（弹窗）
+// - minimize: 直接最小化到系统托盘
+// - exit: 直接退出程序
+export type CloseAction = "ask" | "minimize" | "exit";
+
+export const getCloseAction = (): CloseAction => {
+  if (typeof window === "undefined") return "ask";
+  const stored = localStorage.getItem("closeAction");
+  if (stored === "ask" || stored === "minimize" || stored === "exit") {
+    return stored;
+  }
+  return "ask";
+};
+
+export const setCloseAction = (action: CloseAction): void => {
+  if (typeof window === "undefined") return;
+  localStorage.setItem("closeAction", action);
+  // 通知其他组件设置已变更（如设置页修改后，关闭弹窗应感知新行为）
+  window.dispatchEvent(new Event("closeActionChanged"));
+};
+
 export const getInitialEffectType = (): EffectType => {
   if (typeof window === "undefined") return "none";
   const stored = localStorage.getItem("effectType");

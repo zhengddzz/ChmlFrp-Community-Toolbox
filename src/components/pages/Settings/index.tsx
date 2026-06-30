@@ -12,6 +12,7 @@ import {
 } from "./utils";
 import { AppearanceSection } from "./components/AppearanceSection";
 import { UpdateSection } from "./components/UpdateSection";
+import { GeneralSection } from "./components/GeneralSection";
 import { MaintenanceSection } from "./components/MaintenanceSection";
 import { UpdateDialog } from "@/components/dialogs/UpdateDialog";
 import { updateService, type UpdateInfo } from "@/services/updateService";
@@ -276,6 +277,8 @@ export function Settings() {
           autoCheckEnabled={autoCheckEnabled}
           onAutoCheckChange={handleAutoCheckChange}
         />
+
+      <GeneralSection />
 
       <MaintenanceSection />
     </div>

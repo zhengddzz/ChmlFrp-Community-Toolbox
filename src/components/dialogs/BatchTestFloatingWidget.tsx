@@ -72,7 +72,7 @@ export function BatchTestFloatingWidget({ onExpand, isDialogOpen }: BatchTestFlo
   }
 
   const progress = state.progress;
-  const progressPercent = progress ? (progress.current / progress.total) * 100 : 0;
+  const progressPercent = progress ? progress.overallPercent : 0;
   const successCount = state.results.filter(r => r.success).length;
   const failCount = state.results.filter(r => !r.success).length;
 
