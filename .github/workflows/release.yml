@@ -98,7 +98,7 @@ jobs:
 
             ---
 
-            **问题反馈**: https://github.com/zhengddzz/ChmlFrp-NodeSpeedTest/issues
+            **问题反馈**: https://github.com/zhengddzz/ChmlFrp-Community-Toolbox/issues
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}

@@ -5,11 +5,11 @@
 
 **快速测试节点延迟，帮助用户选择最优节点**
 
-[![GitHub release](https://img.shields.io/github/v/release/zhengddzz/ChmlFrp-NodeSpeedTest?include_prereleases)](https://github.com/zhengddzz/ChmlFrp-NodeSpeedTest/releases)
-[![GitHub downloads](https://img.shields.io/github/downloads/zhengddzz/ChmlFrp-NodeSpeedTest/total)](https://github.com/zhengddzz/ChmlFrp-NodeSpeedTest/releases)
-[![License](https://img.shields.io/github/license/zhengddzz/ChmlFrp-NodeSpeedTest)](LICENSE)
+[![GitHub release](https://img.shields.io/github/v/release/zhengddzz/ChmlFrp-Community-Toolbox?include_prereleases)](https://github.com/zhengddzz/ChmlFrp-Community-Toolbox/releases)
+[![GitHub downloads](https://img.shields.io/github/downloads/zhengddzz/ChmlFrp-Community-Toolbox/total)](https://github.com/zhengddzz/ChmlFrp-Community-Toolbox/releases)
+[![License](https://img.shields.io/github/license/zhengddzz/ChmlFrp-Community-Toolbox)](LICENSE)
 
-[下载最新版本](https://github.com/zhengddzz/ChmlFrp-NodeSpeedTest/releases/latest) | [问题反馈](https://github.com/zhengddzz/ChmlFrp-NodeSpeedTest/issues)
+[下载最新版本](https://github.com/zhengddzz/ChmlFrp-Community-Toolbox/releases/latest) | [问题反馈](https://github.com/zhengddzz/ChmlFrp-Community-Toolbox/issues)
 
 </div>
 

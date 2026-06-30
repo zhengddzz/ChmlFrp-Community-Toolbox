@@ -163,7 +163,7 @@ export class UpdateService {
 
   /** 手动下载页面地址 */
   getReleaseUrl(): string {
-    return "https://github.com/zhengddzz/ChmlFrp-NodeSpeedTest/releases/latest";
+    return "https://github.com/zhengddzz/ChmlFrp-Community-Toolbox/releases/latest";
   }
 }
 

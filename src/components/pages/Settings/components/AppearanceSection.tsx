@@ -526,7 +526,7 @@ export function AppearanceSection({
             <button
               onClick={() => {
                 void import("@tauri-apps/plugin-opener").then(({ openUrl }) =>
-                  openUrl("https://github.com/zhengddzz/ChmlFrp-NodeSpeedTest/issues"),
+                  openUrl("https://github.com/zhengddzz/ChmlFrp-Community-Toolbox/issues"),
                 );
               }}
               className="px-3 py-1.5 text-xs rounded bg-foreground text-background hover:opacity-90 transition-opacity cursor-pointer"
