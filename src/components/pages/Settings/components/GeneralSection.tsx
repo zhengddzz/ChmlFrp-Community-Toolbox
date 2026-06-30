@@ -33,8 +33,8 @@ export function GeneralSection() {
     return () => window.removeEventListener("closeActionChanged", handler);
   }, []);
 
-  const handleChange = (value: string) => {
-    const action = value as CloseAction;
+  const handleChange = (value: string | number) => {
+    const action = String(value) as CloseAction;
     setCloseAction(action);
     setCloseActionState(action);
   };
