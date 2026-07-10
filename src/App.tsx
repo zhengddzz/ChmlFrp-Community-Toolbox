@@ -128,18 +128,28 @@ function App() {
     setDownloadProgress(0);
     setDownloaded(false);
     setInstallerPath(null);
+    // 通知设置页同步下载状态
+    window.dispatchEvent(new CustomEvent("update-download-start"));
     try {
       // 仅下载安装包，不自动重启
       const filePath = await updateService.downloadUpdate((progress) => {
         setDownloadProgress(progress);
+        // 通知设置页同步下载进度
+        window.dispatchEvent(new CustomEvent("update-download-progress", { detail: { progress } }));
       });
       setInstallerPath(filePath);
       setDownloaded(true);
+      // 通知设置页同步下载完成状态
+      window.dispatchEvent(
+        new CustomEvent("update-downloaded", { detail: { installerPath: filePath } }),
+      );
       toast.success("更新已下载完成，可随时重启安装");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "下载更新失败");
     } finally {
       setIsDownloading(false);
+      // 通知设置页下载已结束
+      window.dispatchEvent(new CustomEvent("update-download-end"));
     }
   }, [setUpdateInfo]);
 

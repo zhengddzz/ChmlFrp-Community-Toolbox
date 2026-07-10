@@ -229,6 +229,42 @@ export function Settings() {
     setUpdateInfo(null);
   }, []);
 
+  // 监听 App 层弹窗触发的下载事件，同步设置页下载状态
+  useEffect(() => {
+    const handleDownloadStart = () => {
+      setIsDownloading(true);
+      setDownloadProgress(0);
+      setDownloaded(false);
+      setInstallerPath(null);
+    };
+    const handleDownloadProgress = (e: Event) => {
+      const detail = (e as CustomEvent<{ progress: number }>).detail;
+      if (detail?.progress != null) {
+        setDownloadProgress(detail.progress);
+      }
+    };
+    const handleUpdateDownloaded = (e: Event) => {
+      const detail = (e as CustomEvent<{ installerPath: string }>).detail;
+      if (detail?.installerPath) {
+        setInstallerPath(detail.installerPath);
+      }
+      setDownloaded(true);
+    };
+    const handleDownloadEnd = () => {
+      setIsDownloading(false);
+    };
+    window.addEventListener("update-download-start", handleDownloadStart);
+    window.addEventListener("update-download-progress", handleDownloadProgress);
+    window.addEventListener("update-downloaded", handleUpdateDownloaded);
+    window.addEventListener("update-download-end", handleDownloadEnd);
+    return () => {
+      window.removeEventListener("update-download-start", handleDownloadStart);
+      window.removeEventListener("update-download-progress", handleDownloadProgress);
+      window.removeEventListener("update-downloaded", handleUpdateDownloaded);
+      window.removeEventListener("update-download-end", handleDownloadEnd);
+    };
+  }, []);
+
   return (
     <div className="flex flex-col h-full gap-4">
       <div className="flex items-center justify-between">
