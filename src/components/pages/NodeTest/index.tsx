@@ -19,7 +19,7 @@ import { Network, RefreshCw, CheckCircle2, XCircle, Clock, Filter, History, Glob
 import { toast } from "sonner";
 import { fetchNodes, type Node, type StoredUser } from "@/services/api";
 import { getInitialEffectType, type EffectType } from "@/lib/settings-utils";
-import { SpeedTestDialog, getBatchTestState, subscribeBatchTestState, requestStopBatchTest } from "@/components/dialogs/BatchSpeedTestDialog";
+import { SpeedTestDialog, getBatchTestState, subscribeBatchTestState, requestStopBatchTest, requestForceStopBatchTest, requestCancelStopBatchTest } from "@/components/dialogs/BatchSpeedTestDialog";
 import { BatchTestFloatingWidget } from "@/components/dialogs/BatchTestFloatingWidget";
 import { NodeHistoryDialog } from "@/components/dialogs/NodeHistoryDialog";
 import { addTestHistory } from "@/services/testHistoryService";
@@ -75,7 +75,35 @@ const userTypeOptions = [
 ];
 
 export function NodeTest({ user, onTestingChange }: NodeTestProps) {
-  const [nodes, setNodes] = useState<NodeWithTest[]>([]);
+  // 初始化时尝试从缓存加载节点列表，避免切换页面回来时短暂空白
+  const [nodes, setNodes] = useState<NodeWithTest[]>(() => {
+    try {
+      const cachedNodes = localStorage.getItem("node_list_cache");
+      const savedResults = localStorage.getItem("node_test_results");
+      if (cachedNodes && savedResults) {
+        const parsedNodes = JSON.parse(cachedNodes) as Node[];
+        const parsedResults: SavedTestResult[] = JSON.parse(savedResults);
+        const resultsMap = new Map<number, SavedTestResult>(parsedResults.map((r) => [r.id, r]));
+        return parsedNodes.map((node) => {
+          const savedResult = resultsMap.get(node.id);
+          if (savedResult) {
+            return {
+              ...node,
+              testStatus: savedResult.testStatus,
+              latency: savedResult.latency,
+              downloadSpeed: savedResult.downloadSpeed,
+              error: savedResult.error,
+              lastTested: savedResult.lastTested,
+            };
+          }
+          return { ...node, testStatus: "idle" as const };
+        });
+      }
+    } catch {
+      // 缓存解析失败，返回空数组
+    }
+    return [];
+  });
   const [loading, setLoading] = useState(false);
   const [testingAll, setTestingAll] = useState(false);
   const [testHistory, setTestHistory] = useState<TestHistory[]>([]);
@@ -94,20 +122,30 @@ export function NodeTest({ user, onTestingChange }: NodeTestProps) {
   const [batchTestNodes, setBatchTestNodes] = useState<NodeWithTest[] | null>(null);
   const [showBatchTestDialog, setShowBatchTestDialog] = useState(false);
   const [historyNode, setHistoryNode] = useState<{ node: NodeWithTest; type: "latency" | "speed" } | null>(null);
+  // 批量测试是否处于软停止中（用于顶栏显示"取消停止"和"强制停止"按钮）
+  const [isBatchStopping, setIsBatchStopping] = useState(false);
+
+  // 使用 ref 保存最新的 testingAll 值，避免订阅频繁取消和重注册导致丢失通知
+  const testingAllRef = useRef(testingAll);
+  useEffect(() => {
+    testingAllRef.current = testingAll;
+  }, [testingAll]);
 
   useEffect(() => {
     return subscribeBatchTestState(() => {
       const state = getBatchTestState();
       // 测试开始时同步 testingAll 为 true，让顶部显示"测试中..."和"停止"按钮
-      if (state.isRunning && !testingAll) {
+      if (state.isRunning && !testingAllRef.current) {
         setTestingAll(true);
       }
       // 测试结束时同步 testingAll 为 false
-      if (!state.isRunning && testingAll) {
+      if (!state.isRunning && testingAllRef.current) {
         setTestingAll(false);
       }
+      // 同步软停止状态
+      setIsBatchStopping(state.isStopping);
     });
-  }, [testingAll]);
+  }, []);
 
   const saveTestResults = useCallback((nodesToSave: NodeWithTest[]) => {
     const results = nodesToSave
@@ -161,7 +199,7 @@ export function NodeTest({ user, onTestingChange }: NodeTestProps) {
       const fetchedNodes = await fetchNodes();
       const savedResults = loadTestResults();
       const resultsMap = new Map<number, SavedTestResult>(savedResults.map((r) => [r.id, r]));
-      
+
       const nodesWithResults: NodeWithTest[] = fetchedNodes.map((node) => {
         const savedResult = resultsMap.get(node.id);
         if (savedResult) {
@@ -176,12 +214,44 @@ export function NodeTest({ user, onTestingChange }: NodeTestProps) {
         }
         return { ...node, testStatus: "idle" as const };
       });
-      
+
       setNodes(nodesWithResults);
+      // 缓存节点列表，用于 API 请求失败时恢复
+      localStorage.setItem("node_list_cache", JSON.stringify(fetchedNodes));
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "获取节点列表失败";
-      toast.error(message);
+      // API 请求失败时，尝试从缓存恢复节点列表和测试结果
+      const cachedNodes = localStorage.getItem("node_list_cache");
+      if (cachedNodes) {
+        try {
+          const parsedNodes = JSON.parse(cachedNodes) as Node[];
+          const savedResults = loadTestResults();
+          const resultsMap = new Map<number, SavedTestResult>(savedResults.map((r) => [r.id, r]));
+
+          const nodesWithResults: NodeWithTest[] = parsedNodes.map((node) => {
+            const savedResult = resultsMap.get(node.id);
+            if (savedResult) {
+              return {
+                ...node,
+                testStatus: savedResult.testStatus,
+                latency: savedResult.latency,
+                downloadSpeed: savedResult.downloadSpeed,
+                error: savedResult.error,
+                lastTested: savedResult.lastTested,
+              };
+            }
+            return { ...node, testStatus: "idle" as const };
+          });
+
+          setNodes(nodesWithResults);
+          toast.warning("网络请求失败，已加载缓存的节点数据");
+        } catch {
+          toast.error(message);
+        }
+      } else {
+        toast.error(message);
+      }
     } finally {
       setLoading(false);
     }
@@ -211,7 +281,10 @@ export function NodeTest({ user, onTestingChange }: NodeTestProps) {
 
   useEffect(() => {
     return () => {
-      saveTestResults(nodesRef.current);
+      // 组件卸载时保存测试结果，但仅在已有节点数据时才保存，避免覆盖之前的数据
+      if (nodesRef.current.length > 0) {
+        saveTestResults(nodesRef.current);
+      }
     };
   }, [saveTestResults]);
 
@@ -220,6 +293,18 @@ export function NodeTest({ user, onTestingChange }: NodeTestProps) {
     // SpeedTestDialog 会在当前节点测试完成后停止，不立即中断
     requestStopBatchTest();
     toast.info("将在当前节点测试完成后停止");
+  }, []);
+
+  const forceStopTesting = useCallback(() => {
+    // 强制停止：立即中断当前节点测试
+    requestForceStopBatchTest();
+    toast.warning("正在强制停止测试...");
+  }, []);
+
+  const cancelStopTesting = useCallback(() => {
+    // 取消软停止，继续测试
+    requestCancelStopBatchTest();
+    toast.info("已取消停止，继续测试");
   }, []);
 
   useEffect(() => {
@@ -467,15 +552,37 @@ export function NodeTest({ user, onTestingChange }: NodeTestProps) {
                   <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
                   测试中...
                 </Button>
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  onClick={stopTesting}
-                  className="h-8 px-3 text-xs"
-                >
-                  <SquareX className="h-3.5 w-3.5 mr-1.5" />
-                  停止
-                </Button>
+                {isBatchStopping ? (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={cancelStopTesting}
+                      className="h-8 px-3 text-xs"
+                    >
+                      取消停止
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={forceStopTesting}
+                      className="h-8 px-3 text-xs"
+                    >
+                      <SquareX className="h-3.5 w-3.5 mr-1.5" />
+                      强制停止
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={stopTesting}
+                    className="h-8 px-3 text-xs"
+                  >
+                    <SquareX className="h-3.5 w-3.5 mr-1.5" />
+                    停止
+                  </Button>
+                )}
               </>
             ) : (
               <Button
@@ -492,14 +599,18 @@ export function NodeTest({ user, onTestingChange }: NodeTestProps) {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-4">
+      <div className={cn(
+        "flex flex-wrap items-center gap-4 rounded-lg border bg-card px-3 py-2",
+        effectType === "frosted" && "backdrop-blur-md",
+        effectType === "translucent" && "bg-card/80",
+      )}>
         <div className="flex items-center gap-2 flex-1 min-w-[200px]">
           <Search className="h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="搜索节点名称、区域、节点组..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="h-8"
+            className="h-8 bg-transparent"
           />
           {searchQuery && (
             <span className="text-xs text-muted-foreground whitespace-nowrap">
@@ -628,16 +739,16 @@ export function NodeTest({ user, onTestingChange }: NodeTestProps) {
           </EmptyContent>
         </Empty>
       ) : (
-        <div className="flex-1 min-h-0 overflow-auto pr-1">
+        <div className="flex-1 min-h-0">
           <div className={cn(
-            "rounded-md border bg-card",
+            "h-full max-h-full rounded-md border bg-card overflow-x-auto overflow-y-auto visible-scrollbar",
             effectType === "frosted" && "backdrop-blur-md bg-card/80",
             effectType === "translucent" && "bg-card/80",
           )}>
             <Table className="w-full">
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-12">
+                  <TableHead className="min-w-[48px] w-12">
                     <button
                       onClick={toggleSelectAll}
                       className="flex items-center justify-center"
@@ -649,7 +760,7 @@ export function NodeTest({ user, onTestingChange }: NodeTestProps) {
                       )}
                     </button>
                   </TableHead>
-                  <TableHead className="w-16">
+                  <TableHead className="min-w-[64px] w-16">
                     <button
                       onClick={() => handleSort("id")}
                       className="flex items-center gap-1 hover:text-foreground transition-colors"
@@ -666,12 +777,12 @@ export function NodeTest({ user, onTestingChange }: NodeTestProps) {
                       )}
                     </button>
                   </TableHead>
-                  <TableHead className="max-w-[180px]">节点名称</TableHead>
-                  <TableHead className="max-w-[140px]">区域</TableHead>
-                  <TableHead className="w-20">节点组</TableHead>
-                  <TableHead className="w-20">地域</TableHead>
-                  <TableHead className="w-24">状态</TableHead>
-                  <TableHead>
+                  <TableHead className="min-w-[80px] max-w-[180px]">节点名称</TableHead>
+                  <TableHead className="min-w-[60px] max-w-[140px]">区域</TableHead>
+                  <TableHead className="min-w-[80px] w-20">节点组</TableHead>
+                  <TableHead className="min-w-[80px] w-20">地域</TableHead>
+                  <TableHead className="min-w-[96px] w-24">状态</TableHead>
+                  <TableHead className="min-w-[60px]">
                     <button
                       onClick={() => handleSort("latency")}
                       className="flex items-center gap-1 hover:text-foreground transition-colors"
@@ -716,7 +827,7 @@ export function NodeTest({ user, onTestingChange }: NodeTestProps) {
                     key={node.id} 
                     className={cn(selectedNodeIds.has(node.id) && "bg-accent/50")}
                   >
-                    <TableCell className="w-12">
+                    <TableCell className="min-w-[48px] w-12">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -731,25 +842,25 @@ export function NodeTest({ user, onTestingChange }: NodeTestProps) {
                         )}
                       </button>
                     </TableCell>
-                    <TableCell className="text-muted-foreground">{node.id}</TableCell>
-                    <TableCell className="font-medium max-w-[180px]">
+                    <TableCell className="min-w-[64px] text-muted-foreground">{node.id}</TableCell>
+                    <TableCell className="font-medium min-w-[80px] max-w-[180px]">
                       <span className="block truncate" title={node.name}>{highlightText(node.name, searchQuery)}</span>
                     </TableCell>
-                    <TableCell className="max-w-[140px]">
+                    <TableCell className="min-w-[60px] max-w-[140px]">
                       <span className="block truncate" title={node.area}>{highlightText(node.area, searchQuery)}</span>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="min-w-[80px]">
                       <Badge variant={node.nodegroup === "vip" ? "default" : "outline"} className="text-xs">
                         {node.nodegroup === "vip" ? "VIP" : "普通"}
                       </Badge>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="min-w-[80px]">
                       <Badge variant="outline" className="text-xs">
                         {node.china === "yes" ? "国内" : "国外"}
                       </Badge>
                     </TableCell>
-                    <TableCell>{getStatusBadge(node)}</TableCell>
-                    <TableCell>
+                    <TableCell className="min-w-[96px]">{getStatusBadge(node)}</TableCell>
+                    <TableCell className="min-w-[60px]">
                       {node.latency != null ? (
                         <span 
                           className="flex items-center gap-1 cursor-pointer hover:text-primary transition-colors"

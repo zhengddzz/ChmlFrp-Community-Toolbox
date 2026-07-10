@@ -13,3 +13,74 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
+
+/* Toast 通知进入/退出动画 */
+@keyframes toast-enter {
+  from {
+    transform: translateX(120%) scale(0.92);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes toast-exit {
+  from {
+    transform: translateX(0) scale(1);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(120%) scale(0.92);
+    opacity: 0;
+  }
+}
+
+/* Toast 内容展开/收起动画 */
+@keyframes toast-content-expand {
+  from {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+  to {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+}
+
+/* Toast 主体：进入/退出动画 */
+[data-sonner-toast][data-mounted="true"]:not([data-removed="true"]) {
+  animation: toast-enter 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-sonner-toast][data-removed="true"] {
+  animation: toast-exit 0.25s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+/* 描述区域自动展开动画（不依赖 hover，避免 Sonner 暂停自动消失） */
+@keyframes toast-description-expand {
+  0%, 20% {
+    grid-template-rows: 0fr;
+    opacity: 0;
+    margin-top: 0;
+  }
+  100% {
+    grid-template-rows: 1fr;
+    opacity: 1;
+    margin-top: 4px;
+  }
+}
+
+[data-sonner-toast] [data-description] {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  overflow: hidden;
+  margin-top: 0;
+  animation: toast-description-expand 0.4s cubic-bezier(0.16, 1, 0.3, 1) 0.3s forwards;
+}
+
+[data-sonner-toast] [data-description] > * {
+  overflow: hidden;
+}

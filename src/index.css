@@ -154,12 +154,14 @@
     overflow: hidden;
     background-color: var(--background);
   }
-  /* 隐藏滚动条 */
-  * {
+  /* 隐藏顶层滚动条 */
+  html, body, #root {
     scrollbar-width: none;
     -ms-overflow-style: none;
   }
-  *::-webkit-scrollbar {
+  html::-webkit-scrollbar,
+  body::-webkit-scrollbar,
+  #root::-webkit-scrollbar {
     display: none;
   }
   #root {
@@ -198,6 +200,22 @@
   /* 平滑滚动 */
   .smooth-scroll {
     scroll-behavior: smooth;
+  }
+
+  /* 可见滚动条样式（覆盖全局隐藏） */
+  .visible-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .visible-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .visible-scrollbar::-webkit-scrollbar-thumb {
+    background-color: rgba(156, 163, 175, 0.4);
+    border-radius: 3px;
+  }
+  .visible-scrollbar::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(156, 163, 175, 0.7);
   }
 
   /* 自定义动画 */

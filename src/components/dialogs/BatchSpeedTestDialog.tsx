@@ -9,8 +9,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Gauge, Clock, Download, AlertCircle, CheckCircle2, Loader2, Info, AlertTriangle, Zap, Minimize2 } from "lucide-react";
-import { speedTestService, type SpeedTestProgress, type SpeedTestResult, type LogEntry } from "@/services/speedTestService";
+import { AlertCircle, CheckCircle2, Loader2, Info, AlertTriangle, Zap, Minimize2, SquareX } from "lucide-react";
+import { speedTestService, type SpeedTestProgress, type LogEntry } from "@/services/speedTestService";
 
 interface TestConfig {
   testLatency: boolean;
@@ -28,6 +28,7 @@ interface NodeResult {
 
 export interface BatchTestState {
   isRunning: boolean;
+  isStopping: boolean;
   config: TestConfig;
   nodeNames: string[];
   progress: {
@@ -46,6 +47,7 @@ export interface BatchTestState {
 
 let globalState: BatchTestState = {
   isRunning: false,
+  isStopping: false,
   config: { testLatency: true, testSpeed: true, speedTestSize: 100 },
   nodeNames: [],
   progress: null,
@@ -70,10 +72,26 @@ export function getBatchTestState(): BatchTestState {
 
 // 全局停止处理器：允许外部（如顶部停止按钮）触发 SpeedTestDialog 内部的停止逻辑
 let globalStopHandler: (() => void) | null = null;
+// 全局强制停止处理器：立即中断当前节点测试
+let globalForceStopHandler: (() => void) | null = null;
+// 全局取消停止处理器：取消软停止，继续测试
+let globalCancelStopHandler: (() => void) | null = null;
 
 export function requestStopBatchTest(): void {
   if (globalStopHandler) {
     globalStopHandler();
+  }
+}
+
+export function requestForceStopBatchTest(): void {
+  if (globalForceStopHandler) {
+    globalForceStopHandler();
+  }
+}
+
+export function requestCancelStopBatchTest(): void {
+  if (globalCancelStopHandler) {
+    globalCancelStopHandler();
   }
 }
 
@@ -89,20 +107,6 @@ const stageProgress: Record<string, number> = {
   cleaning_up: 95,
   completed: 100,
   error: 0,
-};
-
-const stageMessages: Record<string, string> = {
-  idle: "准备测试",
-  checking_frpc: "正在检查 frpc...",
-  downloading_frpc: "正在下载 frpc...",
-  starting_tcp_server: "正在启动 TCP 服务器...",
-  creating_tunnel: "正在创建隧道...",
-  starting_frpc: "正在启动 frpc 客户端...",
-  testing_latency: "正在测试延迟...",
-  testing_speed: "正在测试下载速度...",
-  cleaning_up: "正在清理资源...",
-  completed: "测试完成",
-  error: "测试失败",
 };
 
 const stageLabels: Record<string, string> = {
@@ -164,13 +168,6 @@ function LogItem({ log }: { log: LogEntry }) {
   );
 }
 
-function formatSpeed(speedMbps: number): string {
-  if (speedMbps >= 1000) {
-    return `${(speedMbps / 1000).toFixed(2)} Gbps`;
-  }
-  return `${speedMbps.toFixed(2)} Mbps`;
-}
-
 interface SpeedTestDialogProps {
   isOpen: boolean;
   onClose: (isMinimized?: boolean) => void;
@@ -179,13 +176,10 @@ interface SpeedTestDialogProps {
 }
 
 export function SpeedTestDialog({ isOpen, onClose, nodeNames, onTestComplete }: SpeedTestDialogProps) {
-  const isSingleMode = nodeNames.length === 1;
   const [config, setConfig] = useState<TestConfig>(globalState.config);
   const [isRunning, setIsRunning] = useState(false);
   const [speedTestSizeInput, setSpeedTestSizeInput] = useState<string>(config.speedTestSize.toString());
   const [progress, setProgress] = useState<BatchTestState["progress"]>(null);
-  const [singleNodeProgress, setSingleNodeProgress] = useState<SpeedTestProgress>({ stage: "idle", message: "准备测试", logs: [] });
-  const [singleNodeResult, setSingleNodeResult] = useState<SpeedTestResult | null>(null);
   const [results, setResults] = useState<NodeResult[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const stopRef = useRef(false);
@@ -205,7 +199,6 @@ export function SpeedTestDialog({ isOpen, onClose, nodeNames, onTestComplete }: 
   useEffect(() => {
     if (isOpen) {
       // 打开对话框时，如果测试不在运行中，清除上次的日志和结果（全新开始）
-      // 这样可以确保每次打开都是干净的状态，避免残留上次测试的日志
       if (!globalState.isRunning) {
         globalState.logs = [];
         globalState.results = [];
@@ -218,14 +211,11 @@ export function SpeedTestDialog({ isOpen, onClose, nodeNames, onTestComplete }: 
       setConfig(globalState.config);
       stopRef.current = false;
       setIsStopping(false);
+      setIsForceStopping(false);
       setIsMinimizing(false);
       setSpeedTestSizeInput(globalState.config.speedTestSize.toString());
-      if (isSingleMode && !globalState.isRunning) {
-        setSingleNodeProgress({ stage: "idle", message: "准备测试", logs: [] });
-        setSingleNodeResult(null);
-      }
     }
-  }, [isOpen, isSingleMode]);
+  }, [isOpen]);
 
   useEffect(() => {
     setSpeedTestSizeInput(config.speedTestSize.toString());
@@ -245,6 +235,7 @@ export function SpeedTestDialog({ isOpen, onClose, nodeNames, onTestComplete }: 
 
     globalState.config = config;
     globalState.isRunning = true;
+    globalState.isStopping = false;
     globalState.results = [];
     globalState.logs = [];
     globalState.progress = null;
@@ -255,11 +246,6 @@ export function SpeedTestDialog({ isOpen, onClose, nodeNames, onTestComplete }: 
     setLogs([]);
     stopRef.current = false;
     setIsStopping(false);
-
-    if (isSingleMode) {
-      setSingleNodeProgress({ stage: "idle", message: "准备测试", logs: [] });
-      setSingleNodeResult(null);
-    }
 
     addLog(`开始测试，共 ${nodeNames.length} 个节点`, "info");
     addLog(`配置: 延迟测试=${config.testLatency ? "是" : "否"}, 速度测试=${config.testSpeed ? "是" : "否"}${config.testSpeed ? `, 大小=${config.speedTestSize}MB` : ""}`, "info");
@@ -287,9 +273,6 @@ export function SpeedTestDialog({ isOpen, onClose, nodeNames, onTestComplete }: 
         const result = await speedTestService.runSpeedTest(
           nodeName,
           (p: SpeedTestProgress) => {
-            if (isSingleMode) {
-              setSingleNodeProgress(p);
-            }
             const stageLabel = stageLabels[p.stage] || p.stage;
             const nodeOverallPct = calcNodeOverallPercent(p.stage, p.progress);
             const completedNodes = i;
@@ -314,10 +297,6 @@ export function SpeedTestDialog({ isOpen, onClose, nodeNames, onTestComplete }: 
             speedTestSize: config.speedTestSize,
           }
         );
-
-        if (isSingleMode) {
-          setSingleNodeResult(result);
-        }
 
         if (result.success) {
           const nodeResult: NodeResult = {
@@ -357,10 +336,12 @@ export function SpeedTestDialog({ isOpen, onClose, nodeNames, onTestComplete }: 
     }
 
     globalState.isRunning = false;
+    globalState.isStopping = false;
     globalState.progress = null;
     setIsRunning(false);
     setProgress(null);
     setIsStopping(false);
+    setIsForceStopping(false);
     notifyListeners();
 
     if (onTestCompleteRef.current) {
@@ -381,11 +362,12 @@ export function SpeedTestDialog({ isOpen, onClose, nodeNames, onTestComplete }: 
     } else {
       addLog(`测试完成: ${successCount}/${total} 成功`, successCount === total ? "success" : "warning");
     }
-  }, [nodeNames, config, addLog, isSingleMode]);
+  }, [nodeNames, config, addLog]);
 
   const [isMinimizing, setIsMinimizing] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
   const isMinimizingRef = useRef(false);
+  const [isForceStopping, setIsForceStopping] = useState(false);
 
   const handleStop = useCallback(() => {
     if (stopRef.current) return; // 防止重复点击
@@ -393,7 +375,29 @@ export function SpeedTestDialog({ isOpen, onClose, nodeNames, onTestComplete }: 
     // 当前节点测试完成后，循环将不再开始下一个节点的测试
     stopRef.current = true;
     setIsStopping(true);
+    globalState.isStopping = true;
+    notifyListeners();
     addLog("将在当前节点测试完成后停止", "warning");
+  }, [addLog]);
+
+  const handleCancelStop = useCallback(() => {
+    stopRef.current = false;
+    setIsStopping(false);
+    globalState.isStopping = false;
+    notifyListeners();
+    addLog("已取消停止，继续测试", "info");
+  }, [addLog]);
+
+  const handleForceStop = useCallback(() => {
+    // 强制停止：立即中断当前节点测试
+    stopRef.current = true;
+    setIsStopping(true);
+    setIsForceStopping(true);
+    globalState.isStopping = true;
+    notifyListeners();
+    // 调用 speedTestService.cancel() 触发 abortController，中断当前正在进行的测试
+    speedTestService.cancel();
+    addLog("正在强制停止测试...", "warning");
   }, [addLog]);
 
   // 注册全局停止处理器，供外部（如顶部停止按钮）调用
@@ -401,6 +405,18 @@ export function SpeedTestDialog({ isOpen, onClose, nodeNames, onTestComplete }: 
     globalStopHandler = handleStop;
     return () => { globalStopHandler = null; };
   }, [handleStop]);
+
+  // 注册全局强制停止处理器
+  useEffect(() => {
+    globalForceStopHandler = handleForceStop;
+    return () => { globalForceStopHandler = null; };
+  }, [handleForceStop]);
+
+  // 注册全局取消停止处理器
+  useEffect(() => {
+    globalCancelStopHandler = handleCancelStop;
+    return () => { globalCancelStopHandler = null; };
+  }, [handleCancelStop]);
 
   const handleClose = useCallback(() => {
     if (isRunning) {
@@ -419,6 +435,7 @@ export function SpeedTestDialog({ isOpen, onClose, nodeNames, onTestComplete }: 
   }, [isMinimizing]);
 
   const handleMinimize = useCallback(() => {
+    isMinimizingRef.current = true;
     setIsMinimizing(true);
     onClose(true);
   }, [onClose]);
@@ -434,18 +451,6 @@ export function SpeedTestDialog({ isOpen, onClose, nodeNames, onTestComplete }: 
 
   const successCount = results.filter(r => r.success).length;
   const failCount = results.filter(r => !r.success).length;
-
-  const singleCurrentProgress = (() => {
-    if (singleNodeProgress.progress !== undefined && singleNodeProgress.progress !== null) {
-      const stageStart = stageProgress[singleNodeProgress.stage] ?? 0;
-      const stageKeys = Object.keys(stageProgress);
-      const stageIndex = stageKeys.indexOf(singleNodeProgress.stage);
-      const nextStageStart = stageIndex < stageKeys.length - 1 ? stageProgress[stageKeys[stageIndex + 1]] : 100;
-      const stageRange = nextStageStart - stageStart;
-      return Math.min(100, stageStart + (singleNodeProgress.progress / 100) * stageRange);
-    }
-    return stageProgress[singleNodeProgress.stage] ?? 0;
-  })();
 
   const renderConfigPanel = () => (
     <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
@@ -510,123 +515,12 @@ export function SpeedTestDialog({ isOpen, onClose, nodeNames, onTestComplete }: 
             <p className="font-medium mb-1">测试说明</p>
             <p>• 仅测试延迟：直连节点7000端口，无需隧道配额</p>
             <p>• 包含速度测试：需要创建隧道，请确保至少有1个空闲配额</p>
-            {isSingleMode && (
-              <p className="mt-1">速度测试在本机同时上传和下载，下载速度受限于上传带宽。</p>
-            )}
-            {!isSingleMode && (
-              <p className="mt-1">批量测试将逐个节点进行，每个节点会用时15-30秒，具体时间取决于本机环境和节点质量。</p>
-            )}
+            <p className="mt-1">测试将逐个节点进行，每个节点会用时15-30秒，具体时间取决于本机环境和节点质量。</p>
           </div>
         </div>
       </div>
     </div>
   );
-
-  const renderSingleRunning = () => (
-    <div className="space-y-3">
-      <div className="flex items-center gap-2">
-        <Loader2 className="w-4 h-4 animate-spin text-primary" />
-        <span className="text-sm font-medium">{stageMessages[singleNodeProgress.stage] || singleNodeProgress.message}</span>
-      </div>
-
-      <div className="space-y-2">
-        <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <span>总体进度</span>
-          <span>{singleCurrentProgress.toFixed(0)}%</span>
-        </div>
-        <div className="w-full bg-muted rounded-full h-2.5 overflow-hidden">
-          <div
-            className="bg-primary h-full rounded-full transition-all duration-300 ease-out"
-            style={{ width: `${singleCurrentProgress}%` }}
-          />
-        </div>
-      </div>
-
-      {singleNodeProgress.logs.length > 0 && (
-        <div className="border rounded-lg p-3 bg-muted/30 max-h-48 overflow-y-auto">
-          <div className="text-xs font-medium text-muted-foreground mb-2">日志</div>
-          <div className="space-y-1.5">
-            {singleNodeProgress.logs.map((log, index) => (
-              <LogItem key={index} log={log} />
-            ))}
-            <div ref={logsEndRef} />
-          </div>
-        </div>
-      )}
-    </div>
-  );
-
-  const renderSingleResult = () => {
-    if (!singleNodeResult) return null;
-    return (
-      <div className="space-y-3">
-        {singleNodeResult.success ? (
-          <>
-            <div className="flex items-center gap-2 text-green-600">
-              <CheckCircle2 className="w-5 h-5" />
-              <span className="font-medium">测试成功</span>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              {singleNodeResult.latency !== undefined && (
-                <div className="flex flex-col p-3 bg-muted/50 rounded-lg">
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
-                    <Clock className="w-3 h-3" />
-                    延迟
-                  </div>
-                  <span className="text-lg font-semibold">
-                    {singleNodeResult.latency.toFixed(0)}ms
-                  </span>
-                </div>
-              )}
-
-              {singleNodeResult.downloadSpeed !== undefined && (
-                <div className="flex flex-col p-3 bg-muted/50 rounded-lg">
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
-                    <Download className="w-3 h-3" />
-                    带宽速度
-                  </div>
-                  <span className="text-lg font-semibold">
-                    {formatSpeed(singleNodeResult.downloadSpeed)}
-                  </span>
-                </div>
-              )}
-            </div>
-
-            <div className="p-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg">
-              <div className="flex items-start gap-2">
-                <Info className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
-                <div className="text-xs text-blue-700 dark:text-blue-300">
-                  <p>本测试在本机同时进行上传和下载，实际下载速度受限于本机上传带宽。</p>
-                </div>
-              </div>
-            </div>
-          </>
-        ) : (
-          <div className="flex items-start gap-2 text-destructive">
-            <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-            <div>
-              <span className="font-medium">测试失败</span>
-              <p className="text-sm text-muted-foreground mt-1">
-                {singleNodeResult.error}
-              </p>
-            </div>
-          </div>
-        )}
-
-        {singleNodeProgress.logs.length > 0 && (
-          <div className="border rounded-lg p-3 bg-muted/30 max-h-32 overflow-y-auto">
-            <div className="text-xs font-medium text-muted-foreground mb-2">日志</div>
-            <div className="space-y-1.5">
-              {singleNodeProgress.logs.map((log, index) => (
-                <LogItem key={index} log={log} />
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  };
 
   const renderBatchRunning = () => {
     const overallProgress = progress!.overallPercent;
@@ -690,29 +584,26 @@ export function SpeedTestDialog({ isOpen, onClose, nodeNames, onTestComplete }: 
 
   return (
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
-      <DialogContent className={isSingleMode ? "max-w-lg" : "max-w-2xl max-h-[90vh] flex flex-col"}>
+      <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            {isSingleMode ? <Gauge className="w-5 h-5" /> : <Zap className="w-5 h-5" />}
-            {isSingleMode ? "节点测试" : "批量测试"}
+            <Zap className="w-5 h-5" />
+            {nodeNames.length === 1 ? "节点测试" : "批量测试"}
           </DialogTitle>
           <DialogDescription>
-            {isSingleMode ? `节点: ${nodeNames[0]}` : `共 ${nodeNames.length} 个节点`}
+            {nodeNames.length === 1 ? `节点: ${nodeNames[0]}` : `共 ${nodeNames.length} 个节点`}
           </DialogDescription>
         </DialogHeader>
 
-        <div className={isSingleMode ? "space-y-4" : "flex-1 overflow-hidden flex flex-col gap-4"}>
-          {!isRunning && (isSingleMode ? !singleNodeResult : results.length === 0) && renderConfigPanel()}
+        <div className="flex-1 overflow-y-auto flex flex-col gap-4">
+          {!isRunning && results.length === 0 && renderConfigPanel()}
 
-          {isRunning && (isSingleMode ? renderSingleRunning() : (progress && renderBatchRunning()))}
+          {isRunning && progress && renderBatchRunning()}
 
-          {!isRunning && isSingleMode && singleNodeResult && renderSingleResult()}
-
-          {logs.length > 0 && !(isSingleMode && isRunning) && (
-            <div className="border rounded-lg p-3 bg-muted/30 max-h-40 overflow-y-auto">
+          {logs.length > 0 && (
+            <div className="border rounded-lg p-3 bg-muted/30 max-h-40 overflow-y-auto flex-shrink-0">
               <div className="text-xs font-medium text-muted-foreground mb-2">
-                日志 ({logs.length})
-                {!isSingleMode && ` - 成功: ${successCount}, 失败: ${failCount}`}
+                日志 ({logs.length}){!isRunning && ` - 成功: ${successCount}, 失败: ${failCount}`}
               </div>
               <div className="space-y-1.5">
                 {logs.map((log, index) => (
@@ -725,24 +616,40 @@ export function SpeedTestDialog({ isOpen, onClose, nodeNames, onTestComplete }: 
         </div>
 
         <div className="flex justify-end gap-2 mt-4 pt-4 border-t">
-          <Button variant="outline" onClick={handleClose} disabled={isStopping}>
-            {isRunning ? (isStopping ? "停止中..." : "停止") : "关闭"}
-          </Button>
-          {!isRunning && (isSingleMode ? !singleNodeResult?.success : results.length === 0) && (
+          {isRunning && isStopping ? (
+            <>
+              <Button variant="outline" onClick={handleCancelStop} disabled={isForceStopping}>
+                取消停止
+              </Button>
+              <Button variant="destructive" onClick={handleForceStop} disabled={isForceStopping}>
+                {isForceStopping ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+                    正在停止...
+                  </>
+                ) : (
+                  <>
+                    <SquareX className="w-4 h-4 mr-1.5" />
+                    强制停止
+                  </>
+                )}
+              </Button>
+            </>
+          ) : (
+            <Button variant="outline" onClick={handleClose} disabled={isStopping}>
+              {isRunning ? "停止" : "关闭"}
+            </Button>
+          )}
+          {!isRunning && results.length === 0 && (
             <Button
               onClick={handleStartTest}
               disabled={!config.testLatency && !config.testSpeed}
             >
-              {isSingleMode ? <Gauge className="w-4 h-4 mr-1.5" /> : <Zap className="w-4 h-4 mr-1.5" />}
+              <Zap className="w-4 h-4 mr-1.5" />
               开始测试
             </Button>
           )}
-          {!isRunning && isSingleMode && singleNodeResult && (
-            <Button onClick={handleStartTest}>
-              重新测试
-            </Button>
-          )}
-          {!isRunning && !isSingleMode && results.length > 0 && (
+          {!isRunning && results.length > 0 && (
             <Button onClick={handleStartTest}>
               重新测试
             </Button>
