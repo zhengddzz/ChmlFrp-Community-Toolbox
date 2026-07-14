@@ -595,13 +595,13 @@ export function SpeedTestDialog({ isOpen, onClose, nodeNames, onTestComplete }: 
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto flex flex-col gap-4">
+        <div className="flex-1 overflow-y-auto flex flex-col gap-4 visible-scrollbar">
           {!isRunning && results.length === 0 && renderConfigPanel()}
 
           {isRunning && progress && renderBatchRunning()}
 
           {logs.length > 0 && (
-            <div className="border rounded-lg p-3 bg-muted/30 max-h-40 overflow-y-auto flex-shrink-0">
+            <div className="border rounded-lg p-3 bg-muted/30 max-h-40 overflow-y-auto flex-shrink-0 visible-scrollbar">
               <div className="text-xs font-medium text-muted-foreground mb-2">
                 日志 ({logs.length}){!isRunning && ` - 成功: ${successCount}, 失败: ${failCount}`}
               </div>

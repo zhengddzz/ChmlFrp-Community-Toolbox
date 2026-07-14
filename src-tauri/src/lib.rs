@@ -151,6 +151,7 @@ pub fn run() {
             commands::clear_dns_logs,
             commands::list_dns_runtime,
             commands::trigger_dns_check,
+            commands::trigger_dns_check_task,
             // 窗口与托盘相关命令
             commands::minimize_to_tray,
             commands::exit_app,

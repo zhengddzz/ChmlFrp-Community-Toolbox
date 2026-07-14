@@ -15,6 +15,7 @@ import { CloseConfirmDialog } from "@/components/dialogs/CloseConfirmDialog";
 import { getInitialSidebarMode, getCloseAction, type SidebarMode } from "@/lib/settings-utils";
 import { updateService } from "@/services/updateService";
 import { invoke } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { toast } from "sonner";
 
 function App() {
@@ -92,19 +93,6 @@ function App() {
     setActiveTab(tab);
   };
 
-  const content = useMemo(() => {
-    switch (activeTab) {
-      case "node-test":
-        return <NodeTest user={user} onTestingChange={handleTestingChange} />;
-      case "dns-failover":
-        return <DnsFailover user={user} />;
-      case "settings":
-        return <Settings />;
-      default:
-        return <NodeTest user={user} onTestingChange={handleTestingChange} />;
-    }
-  }, [activeTab, user, handleTestingChange]);
-
   const backgroundStyle = useMemo(() => {
     if (!backgroundImage) {
       return { backgroundColor: getBackgroundColorWithOpacity(100) };
@@ -128,28 +116,18 @@ function App() {
     setDownloadProgress(0);
     setDownloaded(false);
     setInstallerPath(null);
-    // 通知设置页同步下载状态
-    window.dispatchEvent(new CustomEvent("update-download-start"));
     try {
       // 仅下载安装包，不自动重启
       const filePath = await updateService.downloadUpdate((progress) => {
         setDownloadProgress(progress);
-        // 通知设置页同步下载进度
-        window.dispatchEvent(new CustomEvent("update-download-progress", { detail: { progress } }));
       });
       setInstallerPath(filePath);
       setDownloaded(true);
-      // 通知设置页同步下载完成状态
-      window.dispatchEvent(
-        new CustomEvent("update-downloaded", { detail: { installerPath: filePath } }),
-      );
       toast.success("更新已下载完成，可随时重启安装");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "下载更新失败");
     } finally {
       setIsDownloading(false);
-      // 通知设置页下载已结束
-      window.dispatchEvent(new CustomEvent("update-download-end"));
     }
   }, [setUpdateInfo]);
 
@@ -163,9 +141,39 @@ function App() {
     try {
       await updateService.installUpdate(installerPath);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "启动安装失败");
+      const errorMsg = error instanceof Error ? error.message : "启动安装失败";
+      toast.error(errorMsg, {
+        action: {
+          label: "手动下载",
+          onClick: () => {
+            void openUrl(updateService.getReleaseUrl());
+          },
+        },
+      });
     }
   }, [installerPath]);
+
+  const content = useMemo(() => {
+    switch (activeTab) {
+      case "node-test":
+        return <NodeTest user={user} onTestingChange={handleTestingChange} />;
+      case "dns-failover":
+        return <DnsFailover user={user} />;
+      case "settings":
+        return (
+          <Settings
+            isDownloading={isDownloading}
+            downloadProgress={downloadProgress}
+            downloaded={downloaded}
+            installerPath={installerPath}
+            onUpdate={handleUpdate}
+            onInstall={handleInstall}
+          />
+        );
+      default:
+        return <NodeTest user={user} onTestingChange={handleTestingChange} />;
+    }
+  }, [activeTab, user, handleTestingChange, isDownloading, downloadProgress, downloaded, installerPath, handleUpdate, handleInstall]);
 
   const handleCloseUpdateDialog = useCallback(() => {
     setUpdateInfo(null);
@@ -209,22 +217,6 @@ function App() {
     setupListener();
     return () => {
       if (unlistenFn) unlistenFn();
-    };
-  }, []);
-
-  // 监听 Settings 页派发的下载完成事件，同步 downloaded/installerPath 状态
-  // 使侧边栏"立即更新"按钮在手动检查更新下载完成后正常显示
-  useEffect(() => {
-    const handleUpdateDownloaded = (e: Event) => {
-      const detail = (e as CustomEvent<{ installerPath: string }>).detail;
-      if (detail?.installerPath) {
-        setInstallerPath(detail.installerPath);
-      }
-      setDownloaded(true);
-    };
-    window.addEventListener("update-downloaded", handleUpdateDownloaded);
-    return () => {
-      window.removeEventListener("update-downloaded", handleUpdateDownloaded);
     };
   }, []);
 

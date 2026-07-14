@@ -14,6 +14,8 @@ interface TunnelSelectProps {
   placeholder?: string;
   /** 是否禁用 */
   disabled?: boolean;
+  /** 需要排除的隧道名列表（如主隧道不应出现在备用隧道选项中） */
+  excludeNames?: string[];
 }
 
 /** 模糊匹配：将查询拆分为字符序列，按顺序在目标中查找 */
@@ -90,6 +92,7 @@ export function TunnelSelect({
   onChange,
   placeholder = "搜索隧道名、节点、类型...",
   disabled = false,
+  excludeNames = [],
 }: TunnelSelectProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -116,10 +119,14 @@ export function TunnelSelect({
     }
   }, [open]);
 
-  // 模糊搜索过滤
+  // 模糊搜索过滤（同时排除 excludeNames 中的隧道）
   const filtered = useMemo(() => {
-    if (!query.trim()) return tunnels;
-    return tunnels.filter((t) => {
+    const excludeSet = new Set(excludeNames);
+    const available = excludeSet.size > 0
+      ? tunnels.filter((t) => !excludeSet.has(t.name))
+      : tunnels;
+    if (!query.trim()) return available;
+    return available.filter((t) => {
       return (
         fuzzyMatch(t.name, query) ||
         fuzzyMatch(t.node, query) ||
@@ -127,7 +134,7 @@ export function TunnelSelect({
         fuzzyMatch(t.ip, query)
       );
     });
-  }, [tunnels, query]);
+  }, [tunnels, query, excludeNames]);
 
   const selectedTunnel = tunnels.find((t) => t.name === value);
 
@@ -198,7 +205,7 @@ export function TunnelSelect({
           </div>
 
           {/* 隧道列表 */}
-          <div className="max-h-60 overflow-y-auto">
+          <div className="max-h-60 overflow-y-auto visible-scrollbar">
             {filtered.length === 0 ? (
               <div className="py-6 text-center text-xs text-muted-foreground">
                 {tunnels.length === 0 ? "暂无隧道数据" : "未找到匹配的隧道"}

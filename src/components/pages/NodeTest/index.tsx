@@ -684,7 +684,7 @@ export function NodeTest({ user, onTestingChange }: NodeTestProps) {
               </TableHeader>
               <TableBody>
                 {filteredHistory.map((record) => (
-                  <TableRow key={record.id}>
+                  <TableRow key={`${record.id}-${record.timestamp}`}>
                     <TableCell>
                       {record.success ? (
                         <CheckCircle2 className="w-4 h-4 text-green-500" />
@@ -937,20 +937,23 @@ export function NodeTest({ user, onTestingChange }: NodeTestProps) {
             const nodeIndex = updatedNodes.findIndex(n => n.name === nodeName);
             if (nodeIndex !== -1) {
               const node = updatedNodes[nodeIndex];
+              // 合并新旧测试结果：仅更新本次测试包含的字段，保留上次测试的另一项结果
+              const mergedLatency = result.latency ?? node.latency;
+              const mergedSpeed = result.downloadSpeed ?? node.downloadSpeed;
               addTestHistory({
                 nodeName: node.name,
                 nodeId: node.id,
                 timestamp: Date.now(),
-                latency: result.latency,
-                downloadSpeed: result.downloadSpeed,
+                latency: mergedLatency,
+                downloadSpeed: mergedSpeed,
                 success: !result.error,
                 error: result.error,
               });
               updatedNodes[nodeIndex] = {
                 ...node,
                 testStatus: result.error ? "failed" as const : "success" as const,
-                latency: result.latency,
-                downloadSpeed: result.downloadSpeed,
+                latency: mergedLatency,
+                downloadSpeed: mergedSpeed,
                 error: result.error,
                 lastTested: Date.now(),
               };

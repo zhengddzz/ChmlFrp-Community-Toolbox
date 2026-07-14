@@ -116,6 +116,11 @@ export class DnsFailoverService {
     await invoke("trigger_dns_check");
   }
 
+  /** 手动检查单个任务 */
+  async triggerCheckTask(taskId: string): Promise<void> {
+    await invoke("trigger_dns_check_task", { taskId });
+  }
+
   // ===== 日志 =====
   async listLogs(): Promise<DnsSwitchLog[]> {
     return invoke<DnsSwitchLog[]>("list_dns_logs");

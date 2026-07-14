@@ -10,6 +10,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
@@ -22,6 +23,7 @@ import {
   Loader2,
   ArrowRight,
   Settings2,
+  RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import { type StoredUser, fetchTunnels, type Tunnel } from "@/services/api";
@@ -34,6 +36,7 @@ import {
   type DnsMonitorEvent,
 } from "@/services/dnsFailoverService";
 import { TunnelSelect } from "./TunnelSelect";
+import { useEffectType, getCardClassName } from "@/lib/useEffectType";
 
 interface TasksTabProps {
   user?: StoredUser | null;
@@ -64,6 +67,8 @@ export function TasksTab({ user }: TasksTabProps) {
   const [tunnelsLoading, setTunnelsLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<DnsMonitorTask | null>(null);
+  const [checkingTaskIds, setCheckingTaskIds] = useState<Set<string>>(new Set());
+  const effectType = useEffectType();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -187,6 +192,24 @@ export function TasksTab({ user }: TasksTabProps) {
     }
   };
 
+  // 单任务立即检查
+  const handleCheckTask = async (task: DnsMonitorTask) => {
+    setCheckingTaskIds((prev) => new Set(prev).add(task.id));
+    try {
+      await dnsFailoverService.triggerCheckTask(task.id);
+      toast.success(`任务「${task.name}」检查完成`);
+      load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "检查失败");
+    } finally {
+      setCheckingTaskIds((prev) => {
+        const next = new Set(prev);
+        next.delete(task.id);
+        return next;
+      });
+    }
+  };
+
   // 主隧道选择回调
   const handlePrimarySelect = (tunnelName: string, cnameValue: string) => {
     if (!editing) return;
@@ -254,7 +277,7 @@ export function TasksTab({ user }: TasksTabProps) {
             return (
               <div
                 key={task.id}
-                className="p-3 rounded-xl border border-border/60 bg-card/50"
+                className={`p-3 rounded-xl border border-border/60 ${getCardClassName(effectType)}`}
               >
                 <div className="flex items-center gap-3">
                   <div className="flex-1 min-w-0">
@@ -284,6 +307,16 @@ export function TasksTab({ user }: TasksTabProps) {
                     </div>
                   </div>
                   <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleCheckTask(task)}
+                      disabled={checkingTaskIds.has(task.id)}
+                      className="h-8 w-8 p-0"
+                      title="立即检查"
+                    >
+                      <RefreshCw className={cn("w-3.5 h-3.5", checkingTaskIds.has(task.id) && "animate-spin")} />
+                    </Button>
                     <Button
                       variant="ghost"
                       size="sm"
@@ -339,11 +372,14 @@ export function TasksTab({ user }: TasksTabProps) {
 
       {/* 编辑对话框 */}
       <Dialog open={!!editing} onOpenChange={(open) => !open && setEditing(null)}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto visible-scrollbar">
           <DialogHeader>
             <DialogTitle>
               {list.find((t) => t.id === editing?.id) ? "编辑任务" : "新建任务"}
             </DialogTitle>
+            <DialogDescription>
+              配置 DNS 容灾监控任务的域名、隧道与切换策略
+            </DialogDescription>
           </DialogHeader>
           {editing && (
             <div className="space-y-3 py-2">
@@ -475,6 +511,7 @@ export function TasksTab({ user }: TasksTabProps) {
                           value={b.tunnelName}
                           onChange={(name, ip) => handleBackupSelect(idx, name, ip)}
                           placeholder="选择备用隧道..."
+                          excludeNames={[editing.primaryTunnel.tunnelName]}
                         />
                       </div>
                       <Button
@@ -509,9 +546,14 @@ export function TasksTab({ user }: TasksTabProps) {
                       onChange={(e) =>
                         setEditing({
                           ...editing,
-                          pollIntervalSecs: Math.min(3600, Math.max(10, parseInt(e.target.value) || 60)),
+                          pollIntervalSecs: parseInt(e.target.value) || 0,
                         })
                       }
+                      onBlur={(e) => {
+                        const v = parseInt(e.target.value) || 60;
+                        const clamped = Math.min(3600, Math.max(10, v));
+                        setEditing({ ...editing, pollIntervalSecs: clamped });
+                      }}
                     />
                     <p className="text-[11px] text-muted-foreground">
                       每次检查隧道状态的间隔（10-3600）
@@ -527,9 +569,14 @@ export function TasksTab({ user }: TasksTabProps) {
                       onChange={(e) =>
                         setEditing({
                           ...editing,
-                          failThreshold: Math.max(1, parseInt(e.target.value) || 1),
+                          failThreshold: parseInt(e.target.value) || 0,
                         })
                       }
+                      onBlur={(e) => {
+                        const v = parseInt(e.target.value) || 1;
+                        const clamped = Math.min(10, Math.max(1, v));
+                        setEditing({ ...editing, failThreshold: clamped });
+                      }}
                     />
                     <p className="text-[11px] text-muted-foreground">
                       连续失败此次数后切换
@@ -545,9 +592,14 @@ export function TasksTab({ user }: TasksTabProps) {
                       onChange={(e) =>
                         setEditing({
                           ...editing,
-                          recoverThreshold: Math.max(1, parseInt(e.target.value) || 1),
+                          recoverThreshold: parseInt(e.target.value) || 0,
                         })
                       }
+                      onBlur={(e) => {
+                        const v = parseInt(e.target.value) || 1;
+                        const clamped = Math.min(10, Math.max(1, v));
+                        setEditing({ ...editing, recoverThreshold: clamped });
+                      }}
                     />
                     <p className="text-[11px] text-muted-foreground">
                       恢复连续此次数后回切
@@ -556,7 +608,7 @@ export function TasksTab({ user }: TasksTabProps) {
                 </div>
                 <div className="flex items-center gap-1.5 mt-2 text-[11px] text-muted-foreground">
                   <ArrowRight className="w-3 h-3" />
-                  切换判定：主隧道 tunnelState=false 或 nodestate=offline
+                  切换判定：主隧道掉线或主隧道的节点掉线
                 </div>
               </div>
             </div>

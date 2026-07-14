@@ -18,6 +18,7 @@ import {
   type DnsCredential,
   type DnsProviderKind,
 } from "@/services/dnsFailoverService";
+import { useEffectType, getCardClassName } from "@/lib/useEffectType";
 
 const PROVIDERS: { value: DnsProviderKind; label: string }[] = [
   { value: "dnspodCn", label: "DNSPod.cn（腾讯云 API 3.0）" },
@@ -60,6 +61,7 @@ export function CredentialsTab() {
   const [list, setList] = useState<DnsCredential[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<DnsCredential | null>(null);
+  const effectType = useEffectType();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -153,7 +155,7 @@ export function CredentialsTab() {
           {list.map((cred) => (
             <div
               key={cred.id}
-              className="flex items-center gap-3 p-3 rounded-xl border border-border/60 bg-card/50 hover:bg-card/80 transition-colors"
+              className={`flex items-center gap-3 p-3 rounded-xl border border-border/60 hover:bg-card/80 transition-colors ${getCardClassName(effectType)}`}
             >
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">

@@ -4,10 +4,12 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollText, Trash2, RefreshCw, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { dnsFailoverService, type DnsSwitchLog } from "@/services/dnsFailoverService";
+import { useEffectType, getCardClassName } from "@/lib/useEffectType";
 
 export function LogsTab() {
   const [list, setList] = useState<DnsSwitchLog[]>([]);
   const [loading, setLoading] = useState(true);
+  const effectType = useEffectType();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -82,7 +84,7 @@ export function LogsTab() {
           {list.map((log) => (
             <div
               key={log.id}
-              className="flex items-start gap-3 p-3 rounded-xl border border-border/60 bg-card/50"
+              className={`flex items-start gap-3 p-3 rounded-xl border border-border/60 ${getCardClassName(effectType)}`}
             >
               <div
                 className={`mt-0.5 w-2 h-2 rounded-full flex-shrink-0 ${

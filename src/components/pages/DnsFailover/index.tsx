@@ -1,10 +1,6 @@
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import { cn } from "@/lib/utils";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Button } from "@/components/ui/button";
-import { Shield, RefreshCw, KeyRound, ListChecks, ScrollText } from "lucide-react";
-import { toast } from "sonner";
-import { dnsFailoverService } from "@/services/dnsFailoverService";
+import { Shield, KeyRound, ListChecks, ScrollText } from "lucide-react";
 import { type StoredUser } from "@/services/api";
 import { CredentialsTab } from "./components/CredentialsTab";
 import { TasksTab } from "./components/TasksTab";
@@ -24,19 +20,6 @@ interface DnsFailoverProps {
 
 export function DnsFailover({ user }: DnsFailoverProps) {
   const [activeTab, setActiveTab] = useState<TabId>("tasks");
-  const [checking, setChecking] = useState(false);
-
-  const handleTriggerCheck = useCallback(async () => {
-    setChecking(true);
-    try {
-      await dnsFailoverService.triggerCheck();
-      toast.success("已触发一次检查");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "触发检查失败");
-    } finally {
-      setChecking(false);
-    }
-  }, []);
 
   return (
     <div className="flex h-full flex-col">
@@ -51,16 +34,6 @@ export function DnsFailover({ user }: DnsFailoverProps) {
             <p className="text-xs text-muted-foreground">监控隧道状态，主隧道异常自动切换 CNAME 到备用隧道</p>
           </div>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleTriggerCheck}
-          disabled={checking}
-          className="gap-1.5"
-        >
-          <RefreshCw className={cn("w-3.5 h-3.5", checking && "animate-spin")} />
-          立即检查
-        </Button>
       </div>
 
       {/* Tab 切换 */}
@@ -86,14 +59,14 @@ export function DnsFailover({ user }: DnsFailoverProps) {
         })}
       </div>
 
-      {/* 内容区 */}
-      <ScrollArea className="flex-1">
+      {/* 内容区 - 使用统一滚动条样式 */}
+      <div className="flex-1 min-h-0 overflow-y-auto visible-scrollbar">
         <div className="p-6">
           {activeTab === "tasks" && <TasksTab user={user} />}
           {activeTab === "credentials" && <CredentialsTab />}
           {activeTab === "logs" && <LogsTab />}
         </div>
-      </ScrollArea>
+      </div>
     </div>
   );
 }
