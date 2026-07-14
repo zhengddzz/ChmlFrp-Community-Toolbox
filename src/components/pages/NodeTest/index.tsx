@@ -1,6 +1,5 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { cn } from "@/lib/utils";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import {
   Empty,
@@ -12,8 +11,6 @@ import {
 } from "@/components/ui/empty";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Select } from "@/components/ui/select";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Network, RefreshCw, CheckCircle2, XCircle, Clock, Filter, History, Globe, Users, ArrowUpDown, ArrowUp, ArrowDown, Search, CheckSquare, Square, SquareX, Download, Zap, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -483,18 +480,6 @@ export function NodeTest({ user, onTestingChange }: NodeTestProps) {
           </Badge>
         );
     }
-  };
-
-  const getHistoryStatusBadge = (success: boolean) => {
-    return success ? (
-      <Badge className="bg-green-500/20 text-green-600 hover:bg-green-500/30">
-        成功
-      </Badge>
-    ) : (
-      <Badge variant="destructive">
-        失败
-      </Badge>
-    );
   };
 
   const formatTime = (timestamp: number) => {
