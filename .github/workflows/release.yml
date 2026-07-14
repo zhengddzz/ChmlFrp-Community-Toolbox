@@ -68,6 +68,10 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: 'ChmlFrp 社区工具箱 ${{ github.ref_name }}'
           releaseBody: |
+            ## 📝 更新内容
+
+            修复部分已知问题。
+
             ## 🚀 ChmlFrp 社区工具箱
 
             快速测试节点延迟，帮助用户选择最优节点。
