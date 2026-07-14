@@ -203,6 +203,10 @@
   }
 
   /* 可见滚动条样式（覆盖全局隐藏） */
+  .visible-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(156, 163, 175, 0.4) transparent;
+  }
   .visible-scrollbar::-webkit-scrollbar {
     width: 6px;
     height: 6px;
@@ -216,6 +220,38 @@
   }
   .visible-scrollbar::-webkit-scrollbar-thumb:hover {
     background-color: rgba(156, 163, 175, 0.7);
+  }
+  .visible-scrollbar::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  .visible-scrollbar::-webkit-scrollbar-button {
+    display: none;
+  }
+
+  /* Table 组件内部滚动容器也使用统一样式 */
+  [data-slot="table-container"] {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(156, 163, 175, 0.4) transparent;
+  }
+  [data-slot="table-container"]::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  [data-slot="table-container"]::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  [data-slot="table-container"]::-webkit-scrollbar-thumb {
+    background-color: rgba(156, 163, 175, 0.4);
+    border-radius: 3px;
+  }
+  [data-slot="table-container"]::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(156, 163, 175, 0.7);
+  }
+  [data-slot="table-container"]::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  [data-slot="table-container"]::-webkit-scrollbar-button {
+    display: none;
   }
 
   /* 自定义动画 */

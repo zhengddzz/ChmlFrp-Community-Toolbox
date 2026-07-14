@@ -663,9 +663,13 @@ export function NodeTest({ user, onTestingChange }: NodeTestProps) {
           加载中...
         </div>
       ) : showHistory ? (
-        <ScrollArea className="flex-1 min-h-0 pr-1">
+        <div className={cn(
+          "flex-1 min-h-0 rounded-md border bg-card overflow-y-auto visible-scrollbar",
+          effectType === "frosted" && "backdrop-blur-md bg-card/80",
+          effectType === "translucent" && "bg-card/80",
+        )}>
           {historyLoading ? (
-            <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
+            <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
               加载中...
             </div>
           ) : filteredHistory.length === 0 ? (
@@ -681,42 +685,58 @@ export function NodeTest({ user, onTestingChange }: NodeTestProps) {
               </EmptyHeader>
             </Empty>
           ) : (
-            <div className="space-y-3">
-              {filteredHistory.map((record) => (
-                <Card key={record.id} className={cn(
-                  "bg-card",
-                  effectType === "frosted" && "backdrop-blur-md bg-card/80",
-                  effectType === "translucent" && "bg-card/80",
-                )}>
-                  <CardHeader className="pb-2">
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="text-sm font-medium">{record.nodeName}</CardTitle>
-                      {getHistoryStatusBadge(record.success)}
-                    </div>
-                    <div className="text-xs text-muted-foreground space-x-3">
-                      <span>{record.area}</span>
-                      <span>{record.nodegroup}</span>
-                      <span>{formatTime(record.timestamp)}</span>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex items-center gap-4 text-sm">
-                      {record.latency != null && (
-                        <span className="flex items-center gap-1">
-                          <Clock className="w-3 h-3 text-muted-foreground" />
+            <Table className="w-full">
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="min-w-[48px] w-12">状态</TableHead>
+                  <TableHead className="min-w-[80px] max-w-[180px]">节点名称</TableHead>
+                  <TableHead className="min-w-[60px] max-w-[140px]">区域</TableHead>
+                  <TableHead className="min-w-[60px]">延迟</TableHead>
+                  <TableHead className="min-w-[120px]">时间</TableHead>
+                  <TableHead className="min-w-[60px]">错误</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredHistory.map((record) => (
+                  <TableRow key={record.id}>
+                    <TableCell>
+                      {record.success ? (
+                        <CheckCircle2 className="w-4 h-4 text-green-500" />
+                      ) : (
+                        <XCircle className="w-4 h-4 text-red-500" />
+                      )}
+                    </TableCell>
+                    <TableCell className="font-medium min-w-[80px] max-w-[180px]">
+                      <span className="block truncate" title={record.nodeName}>{record.nodeName}</span>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground min-w-[60px] max-w-[140px]">
+                      <span className="block truncate">{record.area}</span>
+                    </TableCell>
+                    <TableCell>
+                      {record.latency != null ? (
+                        <span className={record.latency < 100 ? "text-green-600" : record.latency < 300 ? "text-yellow-600" : "text-red-600"}>
                           {record.latency.toFixed(0)}ms
                         </span>
+                      ) : (
+                        <span className="text-muted-foreground">-</span>
                       )}
-                      {record.error && (
-                        <span className="text-destructive text-xs">{record.error}</span>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground text-xs whitespace-nowrap">
+                      {formatTime(record.timestamp)}
+                    </TableCell>
+                    <TableCell className="text-destructive text-xs max-w-[200px]">
+                      {record.error ? (
+                        <span className="block truncate" title={record.error}>{record.error}</span>
+                      ) : (
+                        <span className="text-muted-foreground">-</span>
                       )}
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           )}
-        </ScrollArea>
+        </div>
       ) : filteredNodes.length === 0 ? (
         <Empty className="flex-1">
           <EmptyHeader>
@@ -926,6 +946,7 @@ export function NodeTest({ user, onTestingChange }: NodeTestProps) {
         nodeNames={batchTestNodes?.map(n => n.name) || []}
         onTestComplete={(results) => {
           let updatedNodes = [...nodesRef.current];
+          let hasFailure = false;
           results.forEach((result, nodeName) => {
             const nodeIndex = updatedNodes.findIndex(n => n.name === nodeName);
             if (nodeIndex !== -1) {
@@ -947,11 +968,15 @@ export function NodeTest({ user, onTestingChange }: NodeTestProps) {
                 error: result.error,
                 lastTested: Date.now(),
               };
+              if (result.error) hasFailure = true;
             }
           });
           setNodes(updatedNodes);
           saveTestResults(updatedNodes);
-          setBatchTestNodes(null);
+          // 测试有失败时不关闭弹窗，让用户看完日志
+          if (!hasFailure) {
+            setBatchTestNodes(null);
+          }
         }}
       />
 
