@@ -38,7 +38,7 @@ export function Settings({
   isDownloading,
   downloadProgress,
   downloaded,
-  installerPath,
+  installerPath: _installerPath,
   onUpdate,
   onInstall,
 }: SettingsProps) {
