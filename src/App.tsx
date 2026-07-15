@@ -220,8 +220,16 @@ function App() {
     };
   }, []);
 
+  // 登录状态变化时，推送 accessToken 给后端（DNS 容灾调度器请求 /tunnel 时使用）
+  useEffect(() => {
+    if (user?.accessToken) {
+      invoke("set_user_token", { token: user.accessToken }).catch(() => {});
+    }
+  }, [user]);
+
   // 定期检查登录状态，避免 token 过期或服务端踢下线后用户无感知
   // 每 1 分钟调用一次 /userinfo 接口验证；失败时清除登录并提示
+  // 同时把最新 accessToken 推送给后端（DNS 容灾调度器使用）
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
@@ -231,6 +239,11 @@ function App() {
       try {
         await fetchUserInfo();
         // 静默成功：token 仍有效，不提示避免打扰
+        // 推送最新 token 给后端（fetchUserInfo 内部可能已刷新 token 并写入 localStorage）
+        const latest = getStoredUser();
+        if (latest?.accessToken) {
+          invoke("set_user_token", { token: latest.accessToken }).catch(() => {});
+        }
       } catch (err) {
         if (cancelled) return;
         const msg = err instanceof Error ? err.message : String(err);
@@ -244,6 +257,8 @@ function App() {
     };
 
     const timer = window.setInterval(checkLogin, CHECK_INTERVAL_MS);
+    // 启动时立即执行一次，确保后端尽快拿到有效 token
+    checkLogin();
     return () => {
       cancelled = true;
       window.clearInterval(timer);

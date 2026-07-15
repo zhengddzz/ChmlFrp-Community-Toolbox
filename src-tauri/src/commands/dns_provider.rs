@@ -109,10 +109,12 @@ mod dnspod_cn {
         let date = Utc::now().format("%Y-%m-%d").to_string();
 
         // 1. 拼接规范请求串
+        // 腾讯云规范要求 x-tc-action 的值为小写形式
+        let action_lower = action.to_lowercase();
         let canonical_request = format!(
-            "POST\n/\n\ncontent-type:application/json; charset=utf-8\nhost:{}\nx-tc-action:{}.toLowerCase()\n\ncontent-type;host;x-tc-action\n{}",
+            "POST\n/\n\ncontent-type:application/json; charset=utf-8\nhost:{}\nx-tc-action:{}\n\ncontent-type;host;x-tc-action\n{}",
             HOST,
-            action,
+            action_lower,
             hex::encode(Sha256::digest(payload_str.as_bytes()))
         );
 

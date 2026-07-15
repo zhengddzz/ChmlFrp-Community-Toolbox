@@ -162,6 +162,18 @@ export function TasksTab({ user }: TasksTabProps) {
     if (editing.recoverThreshold < 1) return toast.error("恢复回切次数至少为 1");
     if (editing.pollIntervalSecs < 10) return toast.error("轮询间隔至少为 10 秒");
     if (editing.pollIntervalSecs > 3600) return toast.error("轮询间隔最大为 3600 秒");
+    // 校验主隧道不与备用隧道重复
+    const backupNames = editing.backupTunnels
+      .map((b) => b.tunnelName.trim())
+      .filter(Boolean);
+    if (backupNames.includes(editing.primaryTunnel.tunnelName.trim())) {
+      return toast.error("主隧道不能与备用隧道重复");
+    }
+    // 校验备用隧道之间不重复
+    const uniqueBackupNames = new Set(backupNames);
+    if (uniqueBackupNames.size !== backupNames.length) {
+      return toast.error("备用隧道之间存在重复");
+    }
     try {
       await dnsFailoverService.saveTask(editing);
       toast.success("任务已保存");
@@ -471,6 +483,9 @@ export function TasksTab({ user }: TasksTabProps) {
                     value={editing.primaryTunnel.tunnelName}
                     onChange={handlePrimarySelect}
                     placeholder="搜索并选择主隧道..."
+                    excludeNames={editing.backupTunnels
+                      .map((b) => b.tunnelName.trim())
+                      .filter(Boolean)}
                   />
                 )}
               </div>
@@ -511,7 +526,12 @@ export function TasksTab({ user }: TasksTabProps) {
                           value={b.tunnelName}
                           onChange={(name, ip) => handleBackupSelect(idx, name, ip)}
                           placeholder="选择备用隧道..."
-                          excludeNames={[editing.primaryTunnel.tunnelName]}
+                          excludeNames={[
+                            editing.primaryTunnel.tunnelName,
+                            ...editing.backupTunnels
+                              .map((bt, bi) => bi !== idx ? bt.tunnelName.trim() : "")
+                              .filter(Boolean),
+                          ]}
                         />
                       </div>
                       <Button

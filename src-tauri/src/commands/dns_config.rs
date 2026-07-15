@@ -249,6 +249,27 @@ impl DnsRuntimeState {
     }
 }
 
+/// 当前登录用户的有效 access token（前端登录/刷新后推送）
+/// 供 DNS 监控调度器请求 /tunnel 接口使用
+pub struct UserTokenState(pub Mutex<Option<String>>);
+
+impl UserTokenState {
+    pub fn new() -> Self {
+        Self(Mutex::new(None))
+    }
+}
+
+/// 前端推送当前有效的 access token 给后端
+#[tauri::command]
+pub async fn set_user_token(
+    state: tauri::State<'_, UserTokenState>,
+    token: String,
+) -> Result<(), String> {
+    let mut guard = state.0.lock().map_err(|e| e.to_string())?;
+    *guard = Some(token);
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn list_dns_runtime(
     app_handle: tauri::AppHandle,

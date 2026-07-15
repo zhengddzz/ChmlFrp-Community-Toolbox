@@ -4,10 +4,10 @@
 // 主隧道连续 2 次失败 → 切换到备用隧道（按优先级）
 // 主隧道恢复连续 2 次 → 回切到主隧道
 // CNAME 值取所选隧道的 ip 字段
-use super::dns_config::{self, DnsRuntimeState, DnsSwitchLog, DnsMonitorTask, TaskRuntime, TunnelTarget};
+use super::dns_config::{self, DnsRuntimeState, DnsSwitchLog, DnsMonitorTask, TaskRuntime, TunnelTarget, UserTokenState};
 use super::dns_provider::{self, DnsCredential};
-use chrono::Utc;
-use serde::Deserialize;
+use chrono::{Local, Utc};
+use serde::{Deserialize, Deserializer};
 use std::sync::Arc;
 use tauri::{Emitter, Manager};
 use tokio::sync::Mutex as TokioMutex;
@@ -16,21 +16,46 @@ use tokio::sync::Mutex as TokioMutex;
 const SCHEDULER_TICK_SECS: u64 = 10;
 const TUNNEL_API_BASE: &str = "https://cf-v2.uapis.cn";
 
+/// 将 API 可能返回的多种 tunnelState 格式统一解析为 Option<bool>
+fn parse_bool_value(raw: &Option<serde_json::Value>) -> Option<bool> {
+    match raw {
+        None => None,
+        Some(serde_json::Value::Bool(b)) => Some(*b),
+        Some(serde_json::Value::Number(n)) => n.as_f64().map(|f| f != 0.0),
+        Some(serde_json::Value::String(s)) => match s.to_lowercase().as_str() {
+            "true" | "1" => Some(true),
+            "false" | "0" => Some(false),
+            _ => None,
+        },
+        Some(serde_json::Value::Null) => None,
+        _ => None,
+    }
+}
+
+fn deserialize_tunnel_state<'de, D>(deserializer: D) -> Result<Option<bool>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+    Ok(parse_bool_value(&value))
+}
+
 /// /tunnel 接口单条隧道响应
-/// tunnelState 字段在前端 TS 接口未声明，但 API 实际返回
+/// tunnelState 使用自定义反序列化兼容布尔/整数/字符串/空值格式
 #[derive(Deserialize, Debug, Clone)]
 struct TunnelInfo {
+    /// API 可能返回 name 或 tunnelName
+    #[serde(alias = "tunnelName")]
     name: String,
     #[serde(default)]
     node: String,
-    /// 节点状态（"online" / "offline" 等）
-    #[serde(default)]
+    /// API 可能返回 nodestate 或 nodeState
+    #[serde(default, alias = "nodeState")]
     nodestate: String,
-    /// 隧道 ip 字段（CNAME 切换的目标值）
     #[serde(default)]
     ip: String,
-    /// 隧道状态（true=在线，false=离线），API 实际可能返回
-    #[serde(default)]
+    /// API 返回的隧道状态字段，可能是 state / tunnelState / tunnel_state，值为字符串 "true"/"false"
+    #[serde(default, alias = "state", alias = "tunnel_state", deserialize_with = "deserialize_tunnel_state")]
     tunnelState: Option<bool>,
 }
 
@@ -77,8 +102,10 @@ async fn run_once(app_handle: &tauri::AppHandle) -> Result<(), String> {
     }
 
     // 任务可能使用不同的 user_token，按 token 分组拉取一次隧道列表
+    // 同时缓存失败结果，避免同一 token 重复请求
     use std::collections::HashMap;
     let mut cache: HashMap<String, Vec<TunnelInfo>> = HashMap::new();
+    let mut error_cache: HashMap<String, String> = HashMap::new();
 
     for task in tasks.iter().filter(|t| t.enabled) {
         // 按任务自身轮询周期判定是否到检查时间（next_check_at=0 表示首次立即检查）
@@ -88,26 +115,38 @@ async fn run_once(app_handle: &tauri::AppHandle) -> Result<(), String> {
             continue;
         }
 
-        // 拉取隧道列表（按 token 缓存）
-        let tunnels = if let Some(t) = cache.get(&task.user_token) {
-            t.clone()
+        // 拉取隧道列表（按 token 缓存，失败也缓存错误信息）
+        let (tunnels, fetch_error): (Vec<TunnelInfo>, Option<String>) = if let Some(t) = cache.get(&task.user_token) {
+            (t.clone(), None)
+        } else if let Some(err) = error_cache.get(&task.user_token) {
+            (Vec::new(), Some(err.clone()))
         } else {
-            let fetched = fetch_tunnels(&task.user_token).await?;
-            cache.insert(task.user_token.clone(), fetched.clone());
-            fetched
+            match fetch_tunnels(app_handle, &task.user_token).await {
+                Ok(fetched) => {
+                    cache.insert(task.user_token.clone(), fetched.clone());
+                    (fetched, None)
+                }
+                Err(e) => {
+                    log::warn!("[DNS-Monitor] 任务「{}」: 获取隧道列表失败: {}", task.name, e);
+                    error_cache.insert(task.user_token.clone(), e.clone());
+                    (Vec::new(), Some(e))
+                }
+            }
         };
 
-        // 执行单任务检查（忽略轮询周期）
-        check_single_task(app_handle, task, &tunnels).await?;
+        // 执行单任务检查（传入可能的错误信息，确保 last_check/last_result 更新）
+        check_single_task(app_handle, task, &tunnels, fetch_error.as_deref()).await?;
     }
     Ok(())
 }
 
 /// 检查单个任务（忽略轮询周期，立即执行）
+/// fetch_error: 获取隧道列表时的错误信息（如 token 无效、网络错误）
 async fn check_single_task(
     app_handle: &tauri::AppHandle,
     task: &DnsMonitorTask,
     tunnels: &[TunnelInfo],
+    fetch_error: Option<&str>,
 ) -> Result<(), String> {
     let mut rt = get_runtime(app_handle, &task.id, &task.primary_tunnel);
 
@@ -116,24 +155,115 @@ async fn check_single_task(
     let interval_secs = task.poll_interval_secs.max(10) as i64;
     rt.next_check_at = now_ts + interval_secs;
 
+    // 先更新 last_check（无论后续是否成功，前端都能看到"上次检查时间"）
+    rt.last_check = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    // 获取隧道列表失败：记录错误，不累计失败次数，等待下轮重试
+    if let Some(err) = fetch_error {
+        log::warn!("[DNS-Monitor] 任务「{}」: 获取隧道失败: {}", task.name, err);
+        rt.last_result = format!("获取隧道失败: {}", err);
+        save_runtime(app_handle, &task.id, &rt);
+        let _ = app_handle.emit("dns-monitor-event", serde_json::json!({
+            "taskId": task.id,
+            "runtime": rt,
+        }));
+        return Ok(());
+    }
+
     // 判定主隧道状态
     let primary = find_tunnel(tunnels, &task.primary_tunnel.tunnel_name);
     let primary_ok = primary.map(|t| is_tunnel_healthy(t)).unwrap_or(false);
 
-    rt.last_check = Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    // 隧道列表为空（token 无效或 API 故障），跳过本轮，不累计失败
+    if tunnels.is_empty() && primary.is_none() {
+        log::warn!(
+            "[DNS-Monitor] 任务「{}」: 隧道列表为空，跳过本轮（等待有效 token）",
+            task.name
+        );
+        rt.last_result = "隧道列表为空，等待有效 token".to_string();
+        save_runtime(app_handle, &task.id, &rt);
+        let _ = app_handle.emit("dns-monitor-event", serde_json::json!({
+            "taskId": task.id,
+            "runtime": rt,
+        }));
+        return Ok(());
+    }
+
+    // 调试日志：输出隧道匹配和健康状态
+    log::info!(
+        "[DNS-Monitor] 任务「{}」: 隧道总数={}, 主隧道={} 匹配={} tunnelState={:?} 健康={}",
+        task.name,
+        tunnels.len(),
+        task.primary_tunnel.tunnel_name,
+        primary.is_some(),
+        primary.map(|t| t.tunnelState).flatten(),
+        primary_ok
+    );
+    for b in &task.backup_tunnels {
+        let found = find_tunnel(tunnels, &b.tunnel_name);
+        log::info!(
+            "[DNS-Monitor] 备用隧道「{}」: 匹配={} tunnelState={:?} 健康={}",
+            b.tunnel_name,
+            found.is_some(),
+            found.map(|t| t.tunnelState).flatten(),
+            found.map(|t| is_tunnel_healthy(t)).unwrap_or(false)
+        );
+    }
 
     if !rt.failed_over {
         // 当前为主隧道
+
+        // 始终检查备用隧道状态，提前预警
+        let backup_healthy = count_healthy_backups(tunnels, &task.backup_tunnels);
+        let backup_total = task.backup_tunnels.len();
+        let backup_note = if backup_total > 0 {
+            format!("，备用 {}/{} 可用", backup_healthy, backup_total)
+        } else {
+            String::new()
+        };
+
         if primary_ok {
             rt.primary_fail_count = 0;
             rt.primary_success_count = 0;
-            rt.last_result = "主隧道正常".to_string();
+            rt.last_result = format!("主隧道正常{}", backup_note);
         } else {
             rt.primary_fail_count += 1;
-            rt.last_result = format!("主隧道异常 ({}/{})", rt.primary_fail_count, task.fail_threshold);
+            rt.last_result = format!("主隧道异常 ({}/{}){}", rt.primary_fail_count, task.fail_threshold, backup_note);
             if rt.primary_fail_count >= task.fail_threshold {
-                // 触发切换
+                // 触发切换：打印详细调试日志
+                log::warn!(
+                    "[DNS-Monitor] 任务「{}」触发切换！主隧道已失败 {}/{} 次",
+                    task.name,
+                    rt.primary_fail_count,
+                    task.fail_threshold
+                );
+                log::info!(
+                    "[DNS-Monitor] 备用隧道配置: {:?}",
+                    task.backup_tunnels.iter().map(|b| &b.tunnel_name).collect::<Vec<_>>()
+                );
+                log::info!(
+                    "[DNS-Monitor] API 返回的隧道名称: {:?}",
+                    tunnels.iter().map(|t| &t.name).collect::<Vec<_>>()
+                );
+                for b in &task.backup_tunnels {
+                    let found = find_tunnel(tunnels, &b.tunnel_name);
+                    if let Some(t) = found {
+                        log::info!(
+                            "[DNS-Monitor] 备用「{}」: 已匹配, tunnelState={:?}, nodestate={}, 健康={}",
+                            b.tunnel_name,
+                            t.tunnelState,
+                            t.nodestate,
+                            is_tunnel_healthy(t)
+                        );
+                    } else {
+                        log::warn!(
+                            "[DNS-Monitor] 备用「{}」: 未匹配到！请检查隧道名称是否一致",
+                            b.tunnel_name
+                        );
+                    }
+                }
                 if let Some(backup) = pick_backup_tunnel(tunnels, &task.backup_tunnels) {
+                    log::info!("[DNS-Monitor] pick_backup_tunnel 选中: {}", backup.tunnel_name);
                     let cname_value = backup.cname_value.clone();
                     let to_name = backup.tunnel_name.clone();
                     let from_name = rt.active_tunnel_name.clone();
@@ -148,6 +278,7 @@ async fn check_single_task(
                     };
                     write_log(app_handle, task, "failover", &from_name, &to_name, &cname_value, success, &message);
                 } else {
+                    log::error!("[DNS-Monitor] pick_backup_tunnel 返回 None！所有备用隧道都不可用");
                     rt.last_result = "无可用备用隧道".to_string();
                 }
             }
@@ -188,7 +319,29 @@ async fn check_single_task(
     Ok(())
 }
 
-async fn fetch_tunnels(user_token: &str) -> Result<Vec<TunnelInfo>, String> {
+async fn fetch_tunnels(app_handle: &tauri::AppHandle, user_token: &str) -> Result<Vec<TunnelInfo>, String> {
+    // 优先使用前端推送的 accessToken（OAuth token），其次回退到任务里存的 user_token
+    let (effective_token, token_source): (String, &'static str) = {
+        if let Some(state) = app_handle.try_state::<UserTokenState>() {
+            if let Ok(guard) = state.0.lock() {
+                if let Some(t) = guard.as_ref() {
+                    (t.clone(), "UserTokenState(accessToken)")
+                } else {
+                    (user_token.to_string(), "task.user_token(legacy)")
+                }
+            } else {
+                (user_token.to_string(), "task.user_token(legacy)")
+            }
+        } else {
+            (user_token.to_string(), "task.user_token(legacy)")
+        }
+    };
+
+    // 仅在 token 来源为 legacy（可能无效）时打印警告
+    if token_source == "task.user_token(legacy)" {
+        log::warn!("[DNS-Monitor] 使用 legacy token，可能无效，请确认前端已推送 accessToken");
+    }
+
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(15))
         .user_agent("ChmlFrpCommunityToolbox/1.3")
@@ -197,7 +350,8 @@ async fn fetch_tunnels(user_token: &str) -> Result<Vec<TunnelInfo>, String> {
 
     let resp = client
         .get(format!("{}/tunnel", TUNNEL_API_BASE))
-        .header("Authorization", format!("Bearer {}", user_token))
+        .header("Authorization", format!("Bearer {}", effective_token))
+        .query(&[("token", &effective_token)])
         .send()
         .await
         .map_err(|e| format!("请求隧道列表失败: {}", e))?;
@@ -213,7 +367,10 @@ async fn fetch_tunnels(user_token: &str) -> Result<Vec<TunnelInfo>, String> {
         data: Vec<TunnelInfo>,
     }
 
-    let parsed: TunnelApiResponse = resp.json().await.map_err(|e| format!("解析隧道响应失败: {}", e))?;
+    let parsed: TunnelApiResponse = resp.json().await
+        .map_err(|e| format!("解析隧道响应失败: {}", e))?;
+
+    log::info!("[DNS-Monitor] 获取到 {} 条隧道", parsed.data.len());
     Ok(parsed.data)
 }
 
@@ -223,10 +380,16 @@ fn find_tunnel<'a>(tunnels: &'a [TunnelInfo], name: &str) -> Option<&'a TunnelIn
 
 /// 健康判定：tunnelState 不为 false 且 nodestate 非 "offline"
 fn is_tunnel_healthy(t: &TunnelInfo) -> bool {
-    if t.tunnelState == Some(false) {
-        return false;
+    let ts_unhealthy = t.tunnelState == Some(false);
+    let node_offline = t.nodestate.eq_ignore_ascii_case("offline");
+    let healthy = !ts_unhealthy && !node_offline;
+    if !healthy {
+        log::info!(
+            "[DNS-Monitor] 隧道「{}」不健康: tunnelState={:?}, nodestate={}",
+            t.name, t.tunnelState, t.nodestate
+        );
     }
-    !t.nodestate.eq_ignore_ascii_case("offline")
+    healthy
 }
 
 /// 从备用隧道列表中选取第一个健康的隧道
@@ -234,6 +397,14 @@ fn pick_backup_tunnel<'a>(tunnels: &'a [TunnelInfo], backups: &'a [TunnelTarget]
     backups.iter().find(|b| {
         find_tunnel(tunnels, &b.tunnel_name).map(is_tunnel_healthy).unwrap_or(false)
     })
+}
+
+/// 统计备用隧道中健康可用的数量
+fn count_healthy_backups(tunnels: &[TunnelInfo], backups: &[TunnelTarget]) -> usize {
+    backups
+        .iter()
+        .filter(|b| find_tunnel(tunnels, &b.tunnel_name).map(is_tunnel_healthy).unwrap_or(false))
+        .count()
 }
 
 async fn do_switch(
@@ -302,7 +473,7 @@ fn write_log(
         cname_value: cname_value.to_string(),
         success,
         message: message.to_string(),
-        time: Utc::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+        time: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
     };
     dns_config::append_log(app_handle, log);
 }
@@ -342,6 +513,10 @@ pub async fn trigger_dns_check_task(
         .into_iter()
         .find(|t| t.id == task_id)
         .ok_or_else(|| format!("未找到任务: {}", task_id))?;
-    let tunnels = fetch_tunnels(&task.user_token).await?;
-    check_single_task(&app_handle, &task, &tunnels).await
+    // 即使获取隧道失败，也更新 last_check/last_result，让前端看到状态变化
+    let (tunnels, fetch_error) = match fetch_tunnels(&app_handle, &task.user_token).await {
+        Ok(t) => (t, None),
+        Err(e) => (Vec::new(), Some(e)),
+    };
+    check_single_task(&app_handle, &task, &tunnels, fetch_error.as_deref()).await
 }

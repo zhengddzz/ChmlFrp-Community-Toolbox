@@ -2,7 +2,7 @@ mod commands;
 mod models;
 mod utils;
 
-use commands::dns_config::DnsRuntimeState;
+use commands::dns_config::{DnsRuntimeState, UserTokenState};
 use commands::dns_monitor;
 use commands::update::{launch_installer_silent, take_pending_installer, PendingInstaller};
 use models::FrpcProcesses;
@@ -28,6 +28,7 @@ pub fn run() {
         .manage(FrpcProcesses::new())
         .manage(PendingInstaller::new())
         .manage(DnsRuntimeState::new())
+        .manage(UserTokenState::new())
         // 拦截窗口关闭事件：阻止直接关闭，通知前端弹出关闭确认对话框
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -152,6 +153,7 @@ pub fn run() {
             commands::list_dns_runtime,
             commands::trigger_dns_check,
             commands::trigger_dns_check_task,
+            commands::set_user_token,
             // 窗口与托盘相关命令
             commands::minimize_to_tray,
             commands::exit_app,
